@@ -1,3 +1,45 @@
+/**
+ * Class (fungsi konstruktor) untuk node dalam scene graph.
+ * @param {object} buffers - Buffer geometri yang akan digambar (VBO, CBO, IBO, n).
+ * @param {Matrix4} localMatrix - Matriks transformasi node ini RELATIF terhadap induknya.
+ */
+function SceneNode(buffers, localMatrix) {
+    this.buffers = buffers; // Geometri untuk digambar (bisa null jika ini hanya grup)
+    this.localMatrix = localMatrix || new Matrix4();
+    this.worldMatrix = new Matrix4(); // Dihitung saat di-render
+    this.children = [];
+}
+
+/**
+ * Menggambar scene graph secara rekursif.
+ * @param {SceneNode} node - Node yang akan digambar.
+ * @param {Matrix4} parentWorldMatrix - Matriks dunia dari induk node ini.
+ * @param {object} oriPointBuffers - Buffer untuk menggambar titik origin (untuk debug).
+ */
+function drawSceneGraph(gl, programInfo, node, parentWorldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers) {
+    
+    // 1. Hitung matriks dunia (world matrix) untuk node ini:
+    // worldMatrix = parentWorldMatrix * localMatrix
+    node.worldMatrix.set(parentWorldMatrix).multiply(node.localMatrix);
+
+    // 2. Gambar geometri node ini (jika ada)
+    if (node.buffers) {
+        drawPart(gl, programInfo, node.buffers, node.worldMatrix, viewMatrix, projMatrix, mvpMatrix);
+    }
+
+    // 3. (Permintaan Anda) Gambar Titik Origin (oriPoint) di posisi node ini
+    if (oriPointBuffers) {
+        // Kita bisa skala sedikit agar tidak terlalu besar
+        var oriMatrix = new Matrix4(node.worldMatrix).scale(0.5, 0.5, 0.5);
+        drawPart(gl, programInfo, oriPointBuffers, oriMatrix, viewMatrix, projMatrix, mvpMatrix);
+    }
+
+    // 4. Panggil fungsi ini secara rekursif untuk semua anak
+    for (var i = 0; i < node.children.length; i++) {
+        drawSceneGraph(gl, programInfo, node.children[i], node.worldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
+    }
+}
+
 function main() {
     // 1. Setup kanvas dan konteks WebGL
     var canvas = document.getElementById('webgl');
@@ -18,18 +60,22 @@ function main() {
         u_MvpMatrix: gl.getUniformLocation(shaderProgram, 'u_MvpMatrix'),
     };
 
-    // 3. Buat geometri
+    // 3. Buat Geometri & Buffer
     var headGeo = createSphere(1.0, 30, 30, blue);
     var snoutGeo = createSphere(0.6, 20, 20, blue);
     var hornGeo = createCone(0.3, 1.0, 10, white);
     var earGeo = createSphere(0.35, 10, 10, white);
     var eyeGeo = createSphere(0.15, 10, 10, darkPurple);
-
     var tailBall1Geo = createSphere(0.2, 10, 10, blue);
     var tailBall2Geo = createSphere(0.15, 10, 10, blue);
     var tailBall3Geo = createSphere(0.1, 10, 10, blue);
-
     var groundPlaneGeo = createPlane(500, 500, groundGreen);
+
+    // ===============================================
+    // ** BARU: Inisialisasi Geometri oriPoint **
+    // ===============================================
+    // Bola merah kecil untuk menandai origin
+    var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]); 
 
     // Inisialisasi buffer
     var headBuffers = initBuffers(gl, programInfo, headGeo);
@@ -43,38 +89,41 @@ function main() {
         initBuffers(gl, programInfo, tailBall3Geo)
     ];
     var groundPlaneBuffers = initBuffers(gl, programInfo, groundPlaneGeo);
+    
+    // ===============================================
+    // ** BARU: Inisialisasi Buffer oriPoint **
+    // ===============================================
+    var oriPointBuffers = initBuffers(gl, programInfo, oriPointGeo);
 
-    // Variabel tubuh
+    // Variabel tubuh (tetap sama)
     var bodySegmentsCount = 20;
     var segmentLength = 0.5;
     var startRadius = 0.6;
     var maxRadius = 0.8;
     var endRadius = 0.1;
-    var bodyBuffers = null;
+    var bodyBuffers = null; // Akan di-init di dalam tick
     var finalBodyMatrix = null;
     var bodyData = null;
 
     // 4. Setup matriks untuk kamera
     var projMatrix = new Matrix4();
     var viewMatrix = new Matrix4();
-    var modelMatrix = new Matrix4();
-    var mvpMatrix = new Matrix4();
-
+    // modelMatrix dan mvpMatrix akan dikelola oleh SceneGraph
+    var mvpMatrix = new Matrix4(); 
     projMatrix.setPerspective(45, canvas.width / canvas.height, 1, 1000);
 
-    // Pengaturan Kamera Interaktif
+    // Pengaturan Kamera Interaktif (tetap sama)
     let cameraAngleX = 20.0;
     let cameraAngleY = 0.0;
     let cameraDistance = 25.0;
-    let cameraTarget = [0.0, 1.0, 0.0]; // Target lebih tinggi
+    let cameraTarget = [0.0, 1.0, 0.0];
     let cameraPosition = [0.0, 0.0, 0.0];
     let isDragging = false;
     let lastMouseX = -1, lastMouseY = -1;
     const mouseSensitivity = 0.3;
     const moveSpeed = 0.1;
     let keysPressed = {};
-
-    function updateCamera() {
+    function updateCamera() { /* ... kode updateCamera tetap sama ... */ 
         let radX = cameraAngleX * Math.PI / 180.0;
         let radY = cameraAngleY * Math.PI / 180.0;
         cameraPosition[0] = cameraTarget[0] + cameraDistance * Math.sin(radY) * Math.cos(radX);
@@ -88,8 +137,8 @@ function main() {
     }
     updateCamera();
 
-    // Event Listener Mouse
-    canvas.onmousedown = function(ev) {
+    // Event Listener (tetap sama)
+    canvas.onmousedown = function(ev) { /* ... kode onmousedown tetap sama ... */ 
         let x = ev.clientX, y = ev.clientY;
         let rect = ev.target.getBoundingClientRect();
         if (rect.left <= x && x < rect.right && rect.top <= y && y < rect.bottom) {
@@ -100,7 +149,7 @@ function main() {
     };
     canvas.onmouseup = function(ev) { isDragging = false; };
     canvas.onmouseleave = function(ev) { isDragging = false; };
-    canvas.onmousemove = function(ev) {
+    canvas.onmousemove = function(ev) { /* ... kode onmousemove tetap sama ... */ 
         if (!isDragging) return;
         let x = ev.clientX, y = ev.clientY;
         let deltaX = x - lastMouseX;
@@ -112,10 +161,59 @@ function main() {
         lastMouseY = y;
         updateCamera();
     };
-
-    // Event Listener Keyboard
     document.onkeydown = function(ev) { keysPressed[ev.key.toLowerCase()] = true; };
     document.onkeyup = function(ev) { keysPressed[ev.key.toLowerCase()] = false; };
+
+
+    // ===============================================
+    // ** BARU: Setup Hirarki Scene Graph **
+    // ===============================================
+    
+    // Induk dari semua bagian Dragonair
+    var dragonairRoot = new SceneNode(null); 
+    
+    // Node untuk tubuh (buffers-nya akan di-update di tick)
+    var bodyNode = new SceneNode(null);
+    dragonairRoot.children.push(bodyNode);
+
+    // Node untuk kepala (buffers-nya dari headBuffers)
+    var headNode = new SceneNode(headBuffers);
+    dragonairRoot.children.push(headNode);
+    
+    // Anak-anak dari kepala
+    var snoutNode = new SceneNode(snoutBuffers);
+    headNode.children.push(snoutNode); // Anak dari headNode
+    
+    var hornNode = new SceneNode(hornBuffers);
+    headNode.children.push(hornNode); // Anak dari headNode
+
+    var earLNode = new SceneNode(earBuffers);
+    headNode.children.push(earLNode); // Anak dari headNode
+
+    var earRNode = new SceneNode(earBuffers);
+    headNode.children.push(earRNode); // Anak dari headNode
+
+    var eyeLNode = new SceneNode(eyeBuffers);
+    headNode.children.push(eyeLNode); // Anak dari headNode
+    
+    var eyeRNode = new SceneNode(eyeBuffers);
+    headNode.children.push(eyeRNode); // Anak dari headNode
+
+    // Node untuk pangkal ekor (matriksnya di-update di tick)
+    var tailRootNode = new SceneNode(null);
+    dragonairRoot.children.push(tailRootNode);
+
+    // Node untuk bola-bola ekor (saling berantai)
+    var tailBall1Node = new SceneNode(tailBallBuffers[0]);
+    tailRootNode.children.push(tailBall1Node); // Anak dari tailRootNode
+
+    var tailBall2Node = new SceneNode(tailBallBuffers[1]);
+    tailBall1Node.children.push(tailBall2Node); // Anak dari tailBall1Node
+
+    var tailBall3Node = new SceneNode(tailBallBuffers[2]);
+    tailBall2Node.children.push(tailBall3Node); // Anak dari tailBall2Node
+
+    // ===============================================
 
     // 5. Pengaturan render
     gl.clearColor(0.8, 0.8, 0.8, 1.0);
@@ -123,121 +221,117 @@ function main() {
     gl.useProgram(shaderProgram);
 
     // 6. Mulai loop animasi
-   // 6. Mulai loop animasi
-var g_lastTickTime = Date.now();
+    var g_lastTickTime = Date.now();
 
-var tick = function() {
-    let now = Date.now();
-    let elapsed = now - g_lastTickTime;
-    g_lastTickTime = now;
+    var tick = function() {
+        let now = Date.now();
+        let elapsed = now - g_lastTickTime;
+        g_lastTickTime = now;
 
-    // --- Gerakan Kamera WASD ---
-    let radY = cameraAngleY * Math.PI / 180.0;
-    let forward = [Math.sin(radY), 0, Math.cos(radY)];
-    let right = [Math.cos(radY), 0, -Math.sin(radY)];
-    let moved = false;
-    if (keysPressed['w']) { cameraTarget[0] += forward[0] * moveSpeed; cameraTarget[2] += forward[2] * moveSpeed; moved = true; }
-    if (keysPressed['s']) { cameraTarget[0] -= forward[0] * moveSpeed; cameraTarget[2] -= forward[2] * moveSpeed; moved = true; }
-    if (keysPressed['a']) { cameraTarget[0] -= right[0] * moveSpeed; cameraTarget[2] -= right[2] * moveSpeed; moved = true; }
-    if (keysPressed['d']) { cameraTarget[0] += right[0] * moveSpeed; cameraTarget[2] += right[2] * moveSpeed; moved = true; }
-    if (moved) { updateCamera(); }
+        // --- Gerakan Kamera WASD ---
+        // (kode kamera tetap sama)
+        let radY = cameraAngleY * Math.PI / 180.0;
+        let forward = [Math.sin(radY), 0, Math.cos(radY)];
+        let right = [Math.cos(radY), 0, -Math.sin(radY)];
+        let moved = false;
+        if (keysPressed['w']) { cameraTarget[0] += forward[0] * moveSpeed; cameraTarget[2] += forward[2] * moveSpeed; moved = true; }
+        if (keysPressed['s']) { cameraTarget[0] -= forward[0] * moveSpeed; cameraTarget[2] -= forward[2] * moveSpeed; moved = true; }
+        if (keysPressed['a']) { cameraTarget[0] -= right[0] * moveSpeed; cameraTarget[2] -= right[2] * moveSpeed; moved = true; }
+        if (keysPressed['d']) { cameraTarget[0] += right[0] * moveSpeed; cameraTarget[2] += right[2] * moveSpeed; moved = true; }
+        if (moved) { updateCamera(); }
 
-    // ANIMASI: Buat ulang tubuh setiap frame
-    bodyData = createSmoothBody(
-        bodySegmentsCount,
-        segmentLength,
-        startRadius,
-        maxRadius,
-        endRadius,
-        now
-    );
-    if (!bodyData) { console.error("Gagal membuat bodyData"); requestAnimationFrame(tick); return; }
-    bodyBuffers = initBuffers(gl, programInfo, bodyData);
-    if (!bodyBuffers) { console.error("Gagal init bodyBuffers"); requestAnimationFrame(tick); return; }
-    finalBodyMatrix = bodyData.finalSpineMatrix;
-    if(!finalBodyMatrix){ finalBodyMatrix = new Matrix4(); }
 
-    var globalModelMatrix = new Matrix4();
-    var groundY = -3.5;
+        // --- ANIMASI: Buat ulang tubuh (tetap sama) ---
+        bodyData = createSmoothBody(
+            bodySegmentsCount, segmentLength, startRadius, maxRadius, endRadius, now
+        );
+        if (!bodyData) { console.error("Gagal membuat bodyData"); requestAnimationFrame(tick); return; }
+        bodyBuffers = initBuffers(gl, programInfo, bodyData); // Buat buffer baru
+        if (!bodyBuffers) { console.error("Gagal init bodyBuffers"); requestAnimationFrame(tick); return; }
+        finalBodyMatrix = bodyData.finalSpineMatrix;
+        if(!finalBodyMatrix){ finalBodyMatrix = new Matrix4(); }
+        
+        var groundY = -3.5;
+        
+        // --- Hitung Posisi Y (tetap sama) ---
+        if (bodyData.minY === undefined) { console.error("bodyData.minY tidak terdefinisi!"); requestAnimationFrame(tick); return; }
+        var modelY = groundY - bodyData.minY + 0.01; 
 
-    // ===============================================
-    // ** PERBAIKAN: Naikkan Dragonair di atas tanah **
-    // ===============================================
-    var modelY = groundY - bodyData.minY + 0.01; // Naikkan 2 unit di atas tanah
 
-    globalModelMatrix.translate(0, modelY, -5);
+        // ===============================================
+        // ** BARU: Update Matriks Lokal di Scene Graph **
+        // ===============================================
+        
+        // Alih-alih menggambar, kita HANYA update matriks lokal.
+        
+        // 1. Update Root (posisi global model)
+        dragonairRoot.localMatrix.setIdentity().translate(0, modelY, -5);
 
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        // 2. Update Body (ganti buffer-nya dengan yang baru dibuat)
+        bodyNode.buffers = bodyBuffers;
+        // bodyNode.localMatrix tetap identity (sudah benar)
 
-    // Gambar Daratan (tetap di posisi asli)
-    var groundModelMatrix = new Matrix4();
-    groundModelMatrix.translate(0, groundY, -5);
-    drawPart(gl, programInfo, groundPlaneBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        // 3. Update Head (relatif ke root)
+        let headBaseY = startRadius; 
+        let headBaseZ = 0;
+        headNode.localMatrix.setIdentity()
+                    .translate(0, headBaseY, headBaseZ)
+                    .scale(1.0, 1.0, 1.3);
 
-    // --- Gambar Kepala ---
-    let headBaseY = startRadius; // Kepala di atas tubuh
-    let headBaseZ = 0;
+        // 4. Update anak-anak kepala (RELATIF KE KEPALA)
+        // Perhatikan translasinya sekarang relatif terhadap (0,0,0) kepala
+        snoutNode.localMatrix.setIdentity()
+                    .translate(0, -0.2, 1.0) // Dulu: (0, headBaseY - 0.2, headBaseZ + 1.0)
+                    .scale(1.0, 0.8, 1.0);
+        
+        hornNode.localMatrix.setIdentity()
+                    .translate(0, 0.8, 0.2)
+                    .rotate(-10, 1, 0, 0);
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(0, headBaseY, headBaseZ)
-               .scale(1.0, 1.0, 1.3);
-    drawPart(gl, programInfo, headBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        earLNode.localMatrix.setIdentity()
+                    .translate(-0.8, 0.3, 0.1)
+                    .scale(0.8, 0.8, 0.8);
+        
+        earRNode.localMatrix.setIdentity()
+                    .translate(0.8, 0.3, 0.1)
+                    .scale(0.8, 0.8, 0.8);
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(0, headBaseY - 0.2, headBaseZ + 1.0)
-               .scale(1.0, 0.8, 1.0);
-    drawPart(gl, programInfo, snoutBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        eyeLNode.localMatrix.setIdentity()
+                    .translate(-0.4, 0.1, 1.1)
+                    .scale(0.9, 0.9, 0.9);
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(0, headBaseY + 0.8, headBaseZ + 0.2)
-               .rotate(-10, 1, 0, 0);
-    drawPart(gl, programInfo, hornBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        eyeRNode.localMatrix.setIdentity()
+                    .translate(0.4, 0.1, 1.1)
+                    .scale(0.9, 0.9, 0.9);
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(-0.8, headBaseY + 0.3, headBaseZ + 0.1)
-               .scale(0.8, 0.8, 0.8);
-    drawPart(gl, programInfo, earBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        // 5. Update Pangkal Ekor (relatif ke root)
+        tailRootNode.localMatrix.set(finalBodyMatrix);
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(0.8, headBaseY + 0.3, headBaseZ + 0.1)
-               .scale(0.8, 0.8, 0.8);
-    drawPart(gl, programInfo, earBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        // 6. Update Bola Ekor (RELATIF KE INDUKNYA)
+        tailBall1Node.localMatrix.setIdentity().translate(0, 0, -0.3); // Relatif ke tailRoot
+        tailBall2Node.localMatrix.setIdentity().translate(0, 0, -0.4); // Relatif ke tailBall1
+        tailBall3Node.localMatrix.setIdentity().translate(0, 0, -0.3); // Relatif ke tailBall2
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(-0.4, headBaseY + 0.1, headBaseZ + 1.1)
-               .scale(0.9, 0.9, 0.9);
-    drawPart(gl, programInfo, eyeBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        // ===============================================
+        // ** BARU: Proses Gambar **
+        // ===============================================
 
-    modelMatrix.set(globalModelMatrix)
-               .translate(0.4, headBaseY + 0.1, headBaseZ + 1.1)
-               .scale(0.9, 0.9, 0.9);
-    drawPart(gl, programInfo, eyeBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // --- Gambar Tubuh ---
-    modelMatrix.set(globalModelMatrix);
-    drawPart(gl, programInfo, bodyBuffers, modelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        // Gambar Daratan (bukan bagian dari hirarki Dragonair)
+        var groundModelMatrix = new Matrix4();
+        groundModelMatrix.translate(0, groundY, -5);
+        drawPart(gl, programInfo, groundPlaneBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
 
-    // --- Gambar Bola Ekor ---
-    let tailBaseMatrix = new Matrix4(globalModelMatrix).multiply(finalBodyMatrix);
-    
-    // Bola ekor 1
-    let tailMatrix1 = new Matrix4(tailBaseMatrix);
-    tailMatrix1.translate(0, 0, -0.3);
-    drawPart(gl, programInfo, tailBallBuffers[0], tailMatrix1, viewMatrix, projMatrix, mvpMatrix);
+        // Gambar SELURUH hirarki Dragonair dengan satu panggilan!
+        // Mulai dari root, dengan matriks induk berupa identity matrix.
+        // Kita juga berikan oriPointBuffers untuk di-render.
+        drawSceneGraph(gl, programInfo, dragonairRoot, new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
 
-    // Bola ekor 2
-    let tailMatrix2 = new Matrix4(tailMatrix1);
-    tailMatrix2.translate(0, 0, -0.4);
-    drawPart(gl, programInfo, tailBallBuffers[1], tailMatrix2, viewMatrix, projMatrix, mvpMatrix);
+        requestAnimationFrame(tick);
+    };
 
-    // Bola ekor 3
-    let tailMatrix3 = new Matrix4(tailMatrix2);
-    tailMatrix3.translate(0, 0, -0.3);
-    drawPart(gl, programInfo, tailBallBuffers[2], tailMatrix3, viewMatrix, projMatrix, mvpMatrix);
-
-    requestAnimationFrame(tick);
-};
-tick()
+    tick();
 }
 
 // =================================================================
