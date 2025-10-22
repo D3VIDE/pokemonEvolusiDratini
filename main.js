@@ -62,9 +62,10 @@ function main() {
 
     // 3. Buat Geometri & Buffer
     var headGeo = createSphere(1.0, 30, 30, blue);
-    var snoutGeo = createSphere(0.6, 20, 20, blue);
+    var snoutGeo = createSphere(0.6, 20, 20, snoutBlue);
     var hornGeo = createCone(0.3, 1.0, 10, white);
-    var earGeo = createSphere(0.35, 10, 10, white);
+    var earBaseGeo = createSphere(0.25, 10, 10, earWhite); 
+    var earWingGeo = createEllipticParaboloid(0.8, 0.15, 1.2, 12, 5, earWhite);
     var eyeGeo = createSphere(0.15, 10, 10, darkPurple);
     var tailBall1Geo = createSphere(0.2, 10, 10, blue);
     var tailBall2Geo = createSphere(0.15, 10, 10, blue);
@@ -78,10 +79,12 @@ function main() {
     var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]); 
 
     // Inisialisasi buffer
+
+    var earBaseBuffers = initBuffers(gl, programInfo, earBaseGeo);
+    var earWingBuffers = initBuffers(gl, programInfo, earWingGeo);
     var headBuffers = initBuffers(gl, programInfo, headGeo);
     var snoutBuffers = initBuffers(gl, programInfo, snoutGeo);
     var hornBuffers = initBuffers(gl, programInfo, hornGeo);
-    var earBuffers = initBuffers(gl, programInfo, earGeo);
     var eyeBuffers = initBuffers(gl, programInfo, eyeGeo);
     var tailBallBuffers = [
         initBuffers(gl, programInfo, tailBall1Geo),
@@ -166,7 +169,7 @@ function main() {
 
 
     // ===============================================
-    // ** BARU: Setup Hirarki Scene Graph **
+    // Setup Hirarki Scene Graph **
     // ===============================================
     
     // Induk dari semua bagian Dragonair
@@ -187,11 +190,35 @@ function main() {
     var hornNode = new SceneNode(hornBuffers);
     headNode.children.push(hornNode); // Anak dari headNode
 
-    var earLNode = new SceneNode(earBuffers);
-    headNode.children.push(earLNode); // Anak dari headNode
+    var earLNode = new SceneNode(null); // Induk Kiri (kosong)
+    headNode.children.push(earLNode); 
 
-    var earRNode = new SceneNode(earBuffers);
-    headNode.children.push(earRNode); // Anak dari headNode
+    var earLBaseNode = new SceneNode(earBaseBuffers); // Pangkal bola
+    earLNode.children.push(earLBaseNode);
+    
+    var earLWing1Node = new SceneNode(earWingBuffers); // Bulu Besar
+    earLNode.children.push(earLWing1Node);
+    var earLWing2Node = new SceneNode(earWingBuffers); // Bulu Sedang
+    earLNode.children.push(earLWing2Node);
+    var earLWing3Node = new SceneNode(earWingBuffers); // Bulu Kecil
+    earLNode.children.push(earLWing3Node);
+
+    // ===================================
+    // Hirarki Telinga Kanan
+    // ===================================
+    var earRNode = new SceneNode(null); // Induk Kanan (kosong)
+    headNode.children.push(earRNode);
+
+    var earRBaseNode = new SceneNode(earBaseBuffers); // Pangkal bola
+    earRNode.children.push(earRBaseNode);
+    
+    var earRWing1Node = new SceneNode(earWingBuffers); // Bulu Besar
+    earRNode.children.push(earRWing1Node);
+    var earRWing2Node = new SceneNode(earWingBuffers); // Bulu Sedang
+    earRNode.children.push(earRWing2Node);
+    var earRWing3Node = new SceneNode(earWingBuffers); // Bulu Kecil
+    earRNode.children.push(earRWing3Node);
+
 
     var eyeLNode = new SceneNode(eyeBuffers);
     headNode.children.push(eyeLNode); // Anak dari headNode
@@ -281,28 +308,78 @@ function main() {
         // 4. Update anak-anak kepala (RELATIF KE KEPALA)
         // Perhatikan translasinya sekarang relatif terhadap (0,0,0) kepala
         snoutNode.localMatrix.setIdentity()
-                    .translate(0, -0.2, 1.0) // Dulu: (0, headBaseY - 0.2, headBaseZ + 1.0)
+                    .translate(0, -0.3, 0.8)
                     .scale(1.0, 0.8, 1.0);
+                    
         
         hornNode.localMatrix.setIdentity()
-                    .translate(0, 0.8, 0.2)
-                    .rotate(-10, 1, 0, 0);
+                    .translate(0, 0.8, 0.5)
+                    .rotate(15, 1, 0, 0);
 
-        earLNode.localMatrix.setIdentity()
-                    .translate(-0.8, 0.3, 0.1)
-                    .scale(0.8, 0.8, 0.8);
-        
-        earRNode.localMatrix.setIdentity()
-                    .translate(0.8, 0.3, 0.1)
-                    .scale(0.8, 0.8, 0.8);
+
+
+//!! ** TODO: Fix Bug Telinga** 
+
+        earLNode.localMatrix.setIdentity()
+               .translate(-0.8, 0.4, -0.2); 
+
+        earLBaseNode.localMatrix.setIdentity()
+            .scale(0.7, 0.7, 0.7);
+
+        earLWing1Node.localMatrix.setIdentity()
+               .translate(0, 0, 0)    
+            .rotate(10, 0, 1, 0)   
+            .rotate(90, 0, 0, 1)   
+               .scale(1.0, 1.0, 0.4);   
+
+        earLWing2Node.localMatrix.setIdentity()
+               .translate(0, 0, -0.05) 
+            .rotate(15, 0, 1, 0)     
+            .rotate(85, 0, 0, 1)    
+               .scale(0.8, 0.8, 0.8)    
+               .scale(1.0, 1.0, 0.4);  
+
+        earLWing3Node.localMatrix.setIdentity()
+               .translate(0, 0, -0.1) 
+            .rotate(20, 0, 1, 0)    
+            .rotate(80, 0, 0, 1)     
+               .scale(0.6, 0.6, 0.6)    
+               .scale(1.0, 1.0, 0.4);  
+
+        earRNode.localMatrix.setIdentity()
+               .translate(0.8, 0.4, -0.2) 
+            .scale(-1, 1, 1);          
+
+        earRBaseNode.localMatrix.setIdentity()
+            .scale(0.7, 0.7, 0.7);
+
+        earRWing1Node.localMatrix.setIdentity()
+               .translate(0, 0, 0)
+            .rotate(10, 0, 1, 0)
+            .rotate(90, 0, 0, 1)     
+               .scale(1.0, 1.0, 0.4);
+
+        earRWing2Node.localMatrix.setIdentity()
+               .translate(0, 0, -0.05)
+            .rotate(15, 0, 1, 0)
+            .rotate(85, 0, 0, 1)     
+               .scale(0.8, 0.8, 0.8)
+               .scale(1.0, 1.0, 0.4);
+
+        earRWing3Node.localMatrix.setIdentity()
+               .translate(0, 0, -0.1)
+            .rotate(20, 0, 1, 0)
+            .rotate(80, 0, 0, 1)    
+               .scale(0.6, 0.6, 0.6)
+               .scale(1.0, 1.0, 0.4);
 
         eyeLNode.localMatrix.setIdentity()
-                    .translate(-0.4, 0.1, 1.1)
-                    .scale(0.9, 0.9, 0.9);
+                    .translate(-0.6, 0.1, 0.75)
+                    .scale(1.0, 1.2, 0.5);
 
         eyeRNode.localMatrix.setIdentity()
-                    .translate(0.4, 0.1, 1.1)
-                    .scale(0.9, 0.9, 0.9);
+                    .translate(0.6, 0.1, 0.75)
+                    .scale(1.0, 1.2, 0.5);
 
         // 5. Update Pangkal Ekor (relatif ke root)
         tailRootNode.localMatrix.set(finalBodyMatrix);
@@ -313,7 +390,7 @@ function main() {
         tailBall3Node.localMatrix.setIdentity().translate(0, 0, -0.3); // Relatif ke tailBall2
 
         // ===============================================
-        // ** BARU: Proses Gambar **
+        // ** Proses Gambar **
         // ===============================================
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

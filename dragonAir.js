@@ -3,10 +3,9 @@ var blue = [0.4, 0.6, 1.0, 1.0];
 var white = [1.0, 1.0, 1.0, 1.0];
 var darkPurple = [0.2, 0.0, 0.2, 1.0];
 var groundGreen = [0.4, 0.8, 0.4, 1.0];
+var earWhite = [0.9, 0.9, 1.0, 1.0];
+var snoutBlue = [0.6, 0.75, 1.0, 1.0];
 
-// GANTI FUNGSI LAMA ANDA DENGAN YANG INI
-// GANTI FUNGSI LAMA ANDA DENGAN YANG INI
-// GANTI FUNGSI LAMA ANDA DENGAN YANG INI
 function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
     var vertices = [];
     var colors = [];
@@ -208,3 +207,112 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
         return { vertices: new Float32Array(vertices), colors: new Float32Array(colors), indices: new Uint16Array(indices) };
     }
 
+/**
+ * @param {number} baseScaleX - Skala dasar sumbu X
+ * @param {number} baseScaleY - Skala dasar sumbu Y  
+ * @param {number} height - Tinggi total
+ * @param {number} radialSegments - Segmen radial
+ * @param {number} heightSegments - Segmen tinggi
+ * @param {Array} color - Warna [r, g, b, a]
+ * @returns {object} Geometri elliptic paraboloid yang dimodifikasi
+ */
+function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegments, heightSegments, color) {
+    var vertices = [], colors = [], indices = [];
+    
+    // Parameter untuk bentuk yang lebih organik
+    const twistFactor = 0.2;
+    const flareFactor = 0.3;
+    
+    for (let i = 0; i <= heightSegments; i++) {
+        const v = i / heightSegments;
+        
+        // Radius yang smooth dari kecil -> besar -> kecil
+        let radiusScale;
+        if (v < 0.3) {
+            radiusScale = v / 0.3 * 0.6;
+        } else if (v < 0.7) {
+            radiusScale = 0.6 + (v - 0.3) / 0.4 * 0.4;
+        } else {
+            radiusScale = 1.0 - (v - 0.7) / 0.3 * 0.8;
+        }
+        
+        const y = v * height;
+        const twist = v * Math.PI * twistFactor;
+        
+        for (let j = 0; j <= radialSegments; j++) {
+            const u = j / radialSegments;
+            const theta = u * Math.PI * 2 + twist;
+            
+            const x = Math.cos(theta) * baseScaleX * radiusScale;
+            const z = Math.sin(theta) * baseScaleY * radiusScale;
+            
+            vertices.push(x, y, z);
+            
+            if (Array.isArray(color) && color.length >= 3) {
+                colors.push(color[0], color[1], color[2], color[3] || 1.0);
+            } else {
+                colors.push(0.9, 0.95, 1.0, 1.0);
+            }
+        }
+    }
+    
+    // Generate indices
+    for (let i = 0; i < heightSegments; i++) {
+        for (let j = 0; j < radialSegments; j++) {
+            const first = (i * (radialSegments + 1)) + j;
+            const second = first + radialSegments + 1;
+            indices.push(first, second, first + 1);
+            indices.push(second, second + 1, first + 1);
+        }
+    }
+    
+    return {
+        vertices: new Float32Array(vertices),
+        colors: new Float32Array(colors),
+        indices: new Uint16Array(indices)
+    };
+}
+
+
+function createEllipticParaboloid(a, b, c, segments, rings, color) {
+    var vertices = [], colors = [], indices = [];
+
+    for (var i = 0; i <= rings; i++) {
+        var u = i / rings; 
+        var u_squared = u * u;
+
+        for (var j = 0; j <= segments; j++) {
+            var v = (j * 2 * Math.PI) / segments; 
+
+            var x = a * u * Math.cos(v);
+            var y = b * u * Math.sin(v);
+            // **PERBAIKAN: Buka ke arah Z POSITIF (ke depan)**
+            var z = c * u_squared; 
+
+            vertices.push(x, y, z);
+            
+            if (Array.isArray(color) && color.length >= 3) {
+                colors.push(color[0], color[1], color[2], color[3] || 1.0);
+            } else {
+                colors.push(1.0, 1.0, 1.0, 1.0);
+            }
+        }
+    }
+
+    // Generate indices
+    for (var i = 0; i < rings; i++) {
+        for (var j = 0; j < segments; j++) {
+            var first = (i * (segments + 1)) + j;
+            var second = first + segments + 1;
+            
+            indices.push(first, second, first + 1);
+            indices.push(second, second + 1, first + 1);
+        }
+    }
+
+    return { 
+        vertices: new Float32Array(vertices), 
+        colors: new Float32Array(colors), 
+        indices: new Uint16Array(indices) 
+    };
+}
