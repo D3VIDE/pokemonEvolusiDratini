@@ -35,17 +35,20 @@ function SceneNode(buffers, localMatrix) {
 function drawSceneGraph(gl, programInfo, node, parentWorldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers) {
   // 1. Hitung matriks dunia (world matrix) untuk node ini:
   // worldMatrix = parentWorldMatrix * localMatrix
-  node.worldMatrix.set(parentWorldMatrix).multiply(node.localMatrix); // 2. Gambar geometri node ini (jika ada)
+  node.worldMatrix.set(parentWorldMatrix).multiply(node.localMatrix);
 
+  // 2. Gambar geometri node ini (jika ada)
   if (node.buffers) {
     drawPart(gl, programInfo, node.buffers, node.worldMatrix, viewMatrix, projMatrix, mvpMatrix);
-  } // 3. Gambar Titik Origin (oriPoint) di posisi node ini (untuk debug)
+  }
 
+  // 3. Gambar Titik Origin (oriPoint) di posisi node ini (untuk debug)
   if (oriPointBuffers) {
     var oriMatrix = new Matrix4(node.worldMatrix).scale(0.5, 0.5, 0.5);
     drawPart(gl, programInfo, oriPointBuffers, oriMatrix, viewMatrix, projMatrix, mvpMatrix);
-  } // 4. Panggil fungsi ini secara rekursif untuk semua anak
+  }
 
+  // 4. Panggil fungsi ini secara rekursif untuk semua anak
   for (var i = 0; i < node.children.length; i++) {
     drawSceneGraph(gl, programInfo, node.children[i], node.worldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
   }
@@ -62,33 +65,59 @@ function main() {
   if (!gl) {
     console.log("Gagal mendapatkan konteks WebGL");
     return;
-  } // 2. Setup shader
+  }
 
+  // 2. Setup shader
   var vsSource = document.getElementById("shader-vs").innerText;
   var fsSource = document.getElementById("shader-fs").innerText;
   var shaderProgram = initShaders(gl, vsSource, fsSource);
   if (!shaderProgram) {
     console.log("Gagal inisialisasi shader.");
     return;
-  } // Simpan lokasi atribut dan uniform
+  }
 
+  // Simpan lokasi atribut dan uniform
   var programInfo = {
     program: shaderProgram,
     a_Position: gl.getAttribLocation(shaderProgram, "a_Position"),
     a_Color: gl.getAttribLocation(shaderProgram, "a_Color"),
     u_MvpMatrix: gl.getUniformLocation(shaderProgram, "u_MvpMatrix"),
-  }; // =============================================== // ** OOP: Buat Instance Model ** // =============================================== // Buat instance Dragonair baru
+  };
 
-  var myDragonair = new Dragonair(gl, programInfo); // Panggil 'init' untuk membuat geometri, buffer, dan scene graph-nya
+  // ===============================================
+  // ** OOP: Buat Instance Model **
+  // ===============================================
+
+  // Buat instance Dragonair baru
+  var myDragonair = new Dragonair(gl, programInfo);
+  // Panggil 'init' untuk membuat geometri, buffer, dan scene graph-nya
   myDragonair.init();
-  myDragonair.position = [-15, 0, -5];
+  myDragonair.position = [10, 0, 0];
 
+  var myDratini = new DratiniModel(gl, programInfo);
+  myDratini.init();
+  // Inisialisasi posisi awal agar menghadap ke batas (misalnya X positif)
+  myDratini.position = [-20, 0, -10]; // Mulai di X negatif
+  myDratini.globalRotationY = 0; // Awalnya menghadap ke X positif (sudut 0)
+  myDratini.targetRotation = 0;
+  // myDratini.moveSpeed sudah 0.05
+  // myDratini.direction tidak lagi diperlukan jika menggunakan globalRotationY dan targetRotation
+
+  // Buat instance Dragonite baru
   var myDragonite = new Dragonite(gl, programInfo);
   myDragonite.init();
-
-  var worldBounds = 400; // =============================================== // ** Buat Aset Scene (Non-Model) ** // ===============================================
+  // Dragonite akan tetap di posisi [0, 0, 0] (sesuai kode dragonite.js)
+  // Di masa depan, Anda bisa tambahkan:
+  // var myDratini = new Dratini(gl, programInfo);
+  // myDratini.init();
+  // myDratini.getRootNode().localMatrix.translate(10, 0, 0); // Pindahkan ke samping
+  var worldBounds = 400;
+  // ===============================================
+  // ** Buat Aset Scene (Non-Model) **
+  // ===============================================
   var groundPlaneGeo = createPlane(500, 500, groundGreen);
   var groundPlaneBuffers = initBuffers(gl, programInfo, groundPlaneGeo);
+
   var grassGeo = createRandomGrass(1500, worldBounds, worldBounds, 2.0, grassGreen);
   var grassBuffers = initBuffers(gl, programInfo, grassGeo);
 
@@ -106,15 +135,18 @@ function main() {
     var cloudClump = createCloudClump(cloudBuffers, new Matrix4().translate(x, y, z));
     cloudClump.speed = speed; // Simpan kecepatan di node
     cloudRootNode.children.push(cloudClump);
-  } // Bola merah kecil untuk menandai origin (untuk debug)
+  }
+  // Bola merah kecil untuk menandai origin (untuk debug)
   var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]);
-  var oriPointBuffers = initBuffers(gl, programInfo, oriPointGeo); // 4. Setup matriks untuk kamera
+  var oriPointBuffers = initBuffers(gl, programInfo, oriPointGeo);
 
+  // 4. Setup matriks untuk kamera
   var projMatrix = new Matrix4();
   var viewMatrix = new Matrix4();
   var mvpMatrix = new Matrix4();
-  projMatrix.setPerspective(45, canvas.width / canvas.height, 1, 1000); // Pengaturan Kamera Interaktif
+  projMatrix.setPerspective(45, canvas.width / canvas.height, 1, 1000);
 
+  // Pengaturan Kamera Interaktif
   let cameraAngleX = 20.0;
   let cameraAngleY = 0.0;
   let cameraDistance = 35.0;
@@ -134,8 +166,9 @@ function main() {
     cameraPosition[2] = cameraTarget[2] + cameraDistance * Math.cos(radY) * Math.cos(radX);
     viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
   }
-  updateCamera(); // Event Listener
+  updateCamera();
 
+  // Event Listener
   canvas.onmousedown = function (ev) {
     let x = ev.clientX,
       y = ev.clientY;
@@ -164,33 +197,40 @@ function main() {
     lastMouseX = x;
     lastMouseY = y;
     updateCamera();
-  }; // Listener Zoom
+  };
+
+  // Listener Zoom
   canvas.onwheel = function (ev) {
     ev.preventDefault();
     let zoomSensitivity = 0.05;
     cameraDistance += ev.deltaY * zoomSensitivity;
     cameraDistance = Math.max(5.0, Math.min(100.0, cameraDistance));
     updateCamera();
-  }; // Listener Keyboard
+  };
+
+  // Listener Keyboard
   document.onkeydown = function (ev) {
     keysPressed[ev.key.toLowerCase()] = true;
   };
   document.onkeyup = function (ev) {
     keysPressed[ev.key.toLowerCase()] = false;
-  }; // 5. Pengaturan render langit
+  };
 
+  // 5. Pengaturan render langit
   gl.clearColor(skyBlue[0], skyBlue[1], skyBlue[2], skyBlue[3]);
   gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(shaderProgram); // 6. Mulai loop animasi
+  gl.useProgram(shaderProgram);
 
+  // 6. Mulai loop animasi
   var g_lastTickTime = Date.now();
   var groundY = -3.5; // Definisikan groundY di sini
 
   var tick = function () {
     let now = Date.now();
     let elapsed = now - g_lastTickTime;
-    g_lastTickTime = now; // --- Gerakan Kamera WASD ---
+    g_lastTickTime = now;
 
+    // --- Gerakan Kamera WASD ---
     let radY = (cameraAngleY * Math.PI) / 180.0;
     let forward = [Math.sin(radY), 0, Math.cos(radY)];
     let right = [Math.cos(radY), 0, -Math.sin(radY)];
@@ -217,10 +257,18 @@ function main() {
     }
     if (moved) {
       updateCamera();
-    } // =============================================== // ** OOP: Update Model ** // =============================================== // Panggil 'update' pada instance Dragonair
+    }
 
-    myDragonair.update(now, groundY, elapsed); // =============================================== // ** Proses Gambar ** // ===============================================
+    // ===============================================
+    // ** OOP: Update Model **
+    // ===============================================
+    // Panggil 'update' pada instance Dragonair
+    myDragonair.update(now, groundY, elapsed);
+    myDratini.update(elapsed, worldBounds);
     myDragonite.update(now, groundY, elapsed);
+    // ===============================================
+    // ** Proses Gambar **
+    // ===============================================
     let frameSpeed = elapsed / 16.667; // Normalisasi kecepatan
     let worldHalf = worldBounds / 2;
     for (let i = 0; i < cloudRootNode.children.length; i++) {
@@ -233,15 +281,21 @@ function main() {
       }
     }
 
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // Gambar Daratan
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    // Gambar Daratan
     var groundModelMatrix = new Matrix4();
     groundModelMatrix.translate(0, groundY, -5);
     drawPart(gl, programInfo, groundPlaneBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
     drawPart(gl, programInfo, grassBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
-    drawSceneGraph(gl, programInfo, cloudRootNode, new Matrix4(), viewMatrix, projMatrix, mvpMatrix, null); // --- Gambar Model --- // 4. Gambar Dragonair
+    drawSceneGraph(gl, programInfo, cloudRootNode, new Matrix4(), viewMatrix, projMatrix, mvpMatrix, null);
 
+    // --- Gambar Model ---
+    // 4. Gambar Dragonair
     drawSceneGraph(gl, programInfo, myDragonair.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
+
+    drawSceneGraph(gl, programInfo, myDratini.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
+
     drawSceneGraph(gl, programInfo, myDragonite.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
     requestAnimationFrame(tick);
   };
