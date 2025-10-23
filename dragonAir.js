@@ -11,16 +11,16 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
     var vertices = [];
     var colors = [];
     var indices = [];
-    var ringSegments = 16; //mengontrol seberapa benyak lingkaran 2d
+    var ringSegments = 16; //mengontrol seberapa benyak halus/bulat 1 cincin
     var spineMatrices = [];
     var currentSpineMatrix = new Matrix4();
 
-    currentSpineMatrix.translate(0, 0.5, 0); 
+    currentSpineMatrix.translate(0, 0.5, 0); //y untuk kepala
     spineMatrices.push(new Matrix4(currentSpineMatrix));
 
-    let headLiftAngle = -15.0; // Sudut angkat kepala
+    let headLiftAngle = -15.0; // Sudut angkat kepala 0 makan menyentuh tanah
     let s_curve_amplitude = 12.0; //lekukan
-    let s_curve_freq = 2.5;
+    let s_curve_freq = 2.5; //banyak lekukan dalam tubuh
     let time = currentAngle * 0.004;
 
     //*looping untuk menghasilkan liukan
@@ -68,23 +68,27 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
     var vertexIndex = 0;
 
     let firstMatrix = spineMatrices[0].elements;
-    let firstSpinePos = [firstMatrix[12], firstMatrix[13], firstMatrix[14]];
+    let firstSpinePos = [firstMatrix[12], firstMatrix[13], firstMatrix[14]]; //X, Y, dan Z. dalam matrix
 
-    for (let i = 0; i < spineMatrices.length; i++) {
+    for (let i = 0; i < spineMatrices.length; i++) { //mengontrol bentuk tubuh (disini seperti ular body besar di ekor mengecil)
         let matrix = spineMatrices[i];
         let e = matrix.elements;
         let progress = i / (spineMatrices.length - 1);
         let currentRadius;
         if (progress <= 0.5) {
-            currentRadius = startRadius + (maxRadius - startRadius) * (progress * 2);
+            currentRadius = startRadius + (maxRadius - startRadius) * (progress * 2); //membesar
         } else {
-            currentRadius = maxRadius - (maxRadius - endRadius) * ((progress - 0.5) * 2);
+            currentRadius = maxRadius - (maxRadius - endRadius) * ((progress - 0.5) * 2); //mengecil
         }
 
         /**  
          *  ?? yang membentuk 2d
         */
         for (let j = 0; j <= ringSegments; j++) { //16 iterasi 
+            /**
+             * ringSegments = 16 ⭕.
+             * ringSegments = 8 🛑 --> tidak mulus
+             */
             let angle = (j * 2 * Math.PI) / ringSegments;
 
             // Cincin VERTIKAL (XY plane) - "Tidak Gepenk"
@@ -286,3 +290,346 @@ function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegm
         indices: new Uint16Array(indices)
     };
 }
+
+// =================================================================
+// Class OOP untuk DRAGONAIR
+// =================================================================
+
+/**
+ * Class OOP untuk Dragonair.
+ * Mengurus pembuatan geometri, buffer, scene graph, dan update animasi.
+ * @param {WebGLRenderingContext} gl - Konteks WebGL.
+ * @param {object} programInfo - Informasi shader (lokasi atribut/uniform).
+ */
+function Dragonair(gl, programInfo) {
+    this.gl = gl;
+    this.programInfo = programInfo;
+
+    this.rootNode = null;     // Ini akan menjadi 'dragonairRoot'
+    this.nodes = {};          // Tempat menyimpan semua node (headNode, snoutNode, dll)
+    this.bodyData = null;     // Menyimpan data tubuh (minY, finalSpineMatrix)
+    this.bodyBuffers = null;  // Buffer untuk tubuh (di-update tiap frame)
+    
+    // Variabel tubuh (sekarang jadi properti instance)
+    this.bodySegmentsCount = 20;
+    this.segmentLength = 0.9;
+    this.startRadius = 0.6;
+    this.maxRadius = 0.8;
+    this.endRadius = 0.1;
+
+    //**untuk animasi
+    this.position = [0, 0, 0];       // Posisi X, Y (di ground), Z di dunia
+    this.targetPosition = null;     // Target [x, z] berikutnya
+    this.currentAngleY = 0;         // Sudut hadap saat ini (derajat)
+    this.targetAngleY = 0;          // Sudut target hadap (derajat)
+    this.moveSpeed = 5.0;           // Unit per detik
+    this.turnSpeed = 90.0;          // Derajat per detik
+    this.worldBounds = 400;         // Batas dunia (samakan dengan di main)
+    this.targetReachedThreshold = 2.0; // Jarak minimum untuk ganti target
+    this.facingThreshold = 5.0;       // Toleransi sudut sebelum bergerak maju
+}
+
+/**
+ * Membuat semua geometri statis, buffer, dan membangun scene graph
+ * untuk Dragonair.
+ */
+Dragonair.prototype.init = function() {
+    var gl = this.gl;
+    var programInfo = this.programInfo;
+    
+
+    // 1. Buat Geometri Statis
+    // (Geometri tubuh dibuat di 'update')
+    var headGeo = createSphere(1.0, 30, 30, blue);
+    var snoutGeo = createSphere(0.6, 20, 20, snoutBlue);
+    var hornGeo = createCone(0.3, 1.0, 10, white);
+    var earBaseGeo = createSphere(0.25, 10, 10, earWhite);
+    var earWingGeo = createDragonairEarParaboloid(0.8, 0.2, 1.5, 10, 6, earWhite);
+    var neckOrbGeo = createSphere(0.3, 12, 12, crystalBlue);
+    var eyeGeo = createSphere(0.15, 10, 10, darkPurple);
+    var tailBall1Geo = createSphere(0.2, 10, 10, blue);
+    var tailBall2Geo = createSphere(0.15, 10, 10, blue); //!! ** ini tidak digunakan untuk aksesories **
+    var tailBall3Geo = createSphere(0.1, 10, 10, blue);
+
+    // 2. Inisialisasi Buffer Statis
+    var headBuffers = initBuffers(gl, programInfo, headGeo);
+    var snoutBuffers = initBuffers(gl, programInfo, snoutGeo);
+    var hornBuffers = initBuffers(gl, programInfo, hornGeo);
+    var earBaseBuffers = initBuffers(gl, programInfo, earBaseGeo);
+    var earWingBuffers = initBuffers(gl, programInfo, earWingGeo);
+    var eyeBuffers = initBuffers(gl, programInfo, eyeGeo);
+    var tailBallBuffers = [
+        initBuffers(gl, programInfo, tailBall1Geo),
+        initBuffers(gl, programInfo, tailBall2Geo),
+        initBuffers(gl, programInfo, tailBall3Geo)
+    ];
+    var neckOrbBuffers = initBuffers(gl, programInfo, neckOrbGeo);
+
+    // 3. Bangun Scene Graph
+    // Simpan semua node di 'this.nodes' agar bisa di-update
+    this.rootNode = new SceneNode(null); // 'dragonairRoot'
+    this.nodes.body = new SceneNode(null); // Buffer di-update di tick
+    this.rootNode.children.push(this.nodes.body);
+
+    this.nodes.head = new SceneNode(headBuffers);
+    this.rootNode.children.push(this.nodes.head);
+
+    this.nodes.snout = new SceneNode(snoutBuffers);
+    this.nodes.head.children.push(this.nodes.snout);
+    
+    this.nodes.horn = new SceneNode(hornBuffers);
+    this.nodes.head.children.push(this.nodes.horn);
+
+    // Telinga Kiri
+    this.nodes.earL = new SceneNode(null);
+    this.nodes.head.children.push(this.nodes.earL);
+    this.nodes.earLBase = new SceneNode(earBaseBuffers);
+    this.nodes.earL.children.push(this.nodes.earLBase);
+    this.nodes.earLWing1 = new SceneNode(earWingBuffers);
+    this.nodes.earL.children.push(this.nodes.earLWing1);
+    this.nodes.earLWing2 = new SceneNode(earWingBuffers);
+    this.nodes.earL.children.push(this.nodes.earLWing2);
+    this.nodes.earLWing3 = new SceneNode(earWingBuffers);
+    this.nodes.earL.children.push(this.nodes.earLWing3);
+
+    // Telinga Kanan
+    this.nodes.earR = new SceneNode(null);
+    this.nodes.head.children.push(this.nodes.earR);
+    this.nodes.earRBase = new SceneNode(earBaseBuffers);
+    this.nodes.earR.children.push(this.nodes.earRBase);
+    this.nodes.earRWing1 = new SceneNode(earWingBuffers);
+    this.nodes.earR.children.push(this.nodes.earRWing1);
+    this.nodes.earRWing2 = new SceneNode(earWingBuffers);
+    this.nodes.earR.children.push(this.nodes.earRWing2);
+    this.nodes.earRWing3 = new SceneNode(earWingBuffers);
+    this.nodes.earR.children.push(this.nodes.earRWing3);
+
+    // Mata
+    this.nodes.eyeL = new SceneNode(eyeBuffers);
+    this.nodes.head.children.push(this.nodes.eyeL);
+    this.nodes.eyeR = new SceneNode(eyeBuffers);
+    this.nodes.head.children.push(this.nodes.eyeR);
+
+    //orb
+    this.nodes.neckOrb = new SceneNode(neckOrbBuffers);
+    this.rootNode.children.push(this.nodes.neckOrb);
+    // Ekor
+    this.nodes.tailRoot = new SceneNode(null);
+    this.rootNode.children.push(this.nodes.tailRoot);
+    this.nodes.tailBall1 = new SceneNode(tailBallBuffers[0]);
+    this.nodes.tailRoot.children.push(this.nodes.tailBall1);
+    this.nodes.tailBall2 = new SceneNode(tailBallBuffers[1]);
+    this.nodes.tailBall1.children.push(this.nodes.tailBall2);
+    this.nodes.tailBall3 = new SceneNode(tailBallBuffers[2]);
+    this.nodes.tailBall2.children.push(this.nodes.tailBall3);
+
+
+};
+
+/**
+ * Meng-update matriks lokal untuk animasi dan membuat ulang buffer tubuh.
+ * @param {number} now - Waktu saat ini (misalnya dari Date.now()).
+ * @param {number} groundY - Posisi Y dari daratan.
+ */
+Dragonair.prototype.update = function(now, groundY,elapsed) {
+    var gl = this.gl;
+    var programInfo = this.programInfo;
+    var dt = elapsed / 1000.0; // Waktu delta dalam detik
+
+    // --- ANIMASI: Buat ulang tubuh ---
+    this.bodyData = createSmoothBody(
+        this.bodySegmentsCount, this.segmentLength, this.startRadius, 
+        this.maxRadius, this.endRadius, now
+    );
+
+    if (!this.bodyData) { 
+    console.error("Gagal membuat bodyData"); 
+    return;
+     }
+    
+    
+    // untuk mencegah kebocoran memori (memory leak)
+    // if (this.bodyBuffers) { gl.deleteBuffer(this.bodyBuffers.vbo); ... }
+    this.bodyBuffers = initBuffers(gl, programInfo, this.bodyData); 
+    if (!this.bodyBuffers) { 
+    console.error("Gagal init bodyBuffers");
+     return; 
+    }
+    
+    var finalBodyMatrix = this.bodyData.finalSpineMatrix;
+    if(!finalBodyMatrix)
+    { 
+        finalBodyMatrix = new Matrix4(); 
+    }
+    
+    var neckAttachMatrix = this.bodyData.neckAttachMatrix || new Matrix4();
+    if(!neckAttachMatrix){
+        neckAttachMatrix = new Matrix4();
+    }
+    // --- Hitung Posisi Y ---
+    if (this.bodyData.minY === undefined) 
+    { 
+        console.error("bodyData.minY tidak terdefinisi!"); 
+        return;
+     }
+    var modelGroundY = groundY - this.bodyData.minY + 0.01; 
+
+     //* Logika Dragon air berjalan
+
+     // 1. Cek & Tentukan Target Baru jika perlu
+    if (this.targetPosition === null ||
+        (Math.abs(this.position[0] - this.targetPosition[0]) < this.targetReachedThreshold &&
+         Math.abs(this.position[2] - this.targetPosition[2]) < this.targetReachedThreshold))
+    {
+        // Buat target XZ acak baru di dalam worldBounds
+        let padding = 30; // Jarak dari tepi
+        this.targetPosition = [
+            (Math.random() * (this.worldBounds - padding * 2)) - (this.worldBounds / 2 - padding),
+            (Math.random() * (this.worldBounds - padding * 2)) - (this.worldBounds / 2 - padding)
+        ];
+    }
+            // Hitung sudut target (radians) lalu konversi ke derajat
+        let dx = this.targetPosition[0] - this.position[0];
+        let dz = this.targetPosition[1] - this.position[2];
+        let distToTarget = Math.sqrt(dx * dx + dz * dz);
+    // 2. Belok Menghadap Target (Interpolasi Sudut)
+    if (distToTarget > this.targetReachedThreshold) {
+        // A. Hitung sudut aktual ke target (untuk rotasi)
+        let targetAngleRad = Math.atan2(dx, dz); // Radians
+        this.currentAngleY = targetAngleRad * 180.0 / Math.PI; // Langsung set sudut hadap (derajat)
+        // Normalisasi sudut (opsional, tapi baik untuk konsistensi)
+        while (this.currentAngleY > 180) this.currentAngleY -= 360;
+        while (this.currentAngleY < -180) this.currentAngleY += 360;
+
+        // B. Hitung jumlah pergerakan frame ini
+        let moveAmount = this.moveSpeed * dt;
+
+        // C. Jangan melewati target
+        if (moveAmount > distToTarget) {
+            moveAmount = distToTarget; // Pindah tepat ke target
+        }
+
+        // D. Normalisasi vektor arah untuk pergerakan
+        let moveDir = normalizeVector([dx, 0, dz]); // Fungsi helper normalizeVector diperlukan
+
+        // E. Update posisi
+        this.position[0] += moveDir[0] * moveAmount;
+        this.position[2] += moveDir[2] * moveAmount;
+
+    } else {
+        // Target tercapai, cari target baru di frame berikutnya
+        this.targetPosition = null;
+    }
+    // --- Update Matriks Lokal di Scene Graph ---
+    
+    // 1. Update Root (posisi global model)
+    this.rootNode.localMatrix.setRotate(this.currentAngleY, 0, 1, 0); // Atur rotasi dulu
+    this.rootNode.localMatrix.translate(this.position[0], modelGroundY, this.position[2]);
+
+    // 2. Update Body (ganti buffer-nya dengan yang baru dibuat)
+    this.nodes.body.buffers = this.bodyBuffers; // Ganti buffer
+
+    // 3. Update Head (relatif ke root)
+    let headBaseY = this.startRadius; 
+    let headBaseZ = 0;
+    this.nodes.head.localMatrix.setIdentity()
+        .translate(0, headBaseY, headBaseZ)
+        .scale(1.0, 1.0, 1.3);
+
+    // 4. Update anak-anak kepala (RELATIF KE KEPALA)
+    this.nodes.snout.localMatrix.setIdentity()
+        .translate(0, -0.3, 0.8)
+        .scale(1.0, 1.0, 1.3); // Hanya skala
+    
+    this.nodes.horn.localMatrix.setIdentity()
+        .translate(0, 0.8, 0.5) // Posisi tanduk
+        .rotate(15, 1, 0, 0); // Rotasi tanduk
+
+    this.nodes.earL.localMatrix.setIdentity()
+        .translate(-0.75, 0.45, -0.15); // Sedikit disesuaikan
+    this.nodes.earLBase.localMatrix.setIdentity()
+        .scale(0.7, 0.7, 0.7);
+
+    // Wing 1 (Paling Besar & Bawah)
+    this.nodes.earLWing1.localMatrix.setIdentity()
+        .translate(0, 0, 0)
+        .rotate(25, 0, 1, 0)        // Sapu ke belakang (Y)
+        .rotate(20, 0, 0, 1)        // **Miringkan ke LUAR** (Z positif)
+        .rotate(-15, 1, 0, 0)       // Sedikit angkat ke atas (X negatif kecil)
+        .scale(1.0, 1.0, 1.0);
+
+    // Wing 2 (Medium & Tengah)
+    this.nodes.earLWing2.localMatrix.setIdentity()
+        .translate(0.05, 0.05, -0.1) // Sedikit penyesuaian posisi
+        .rotate(35, 0, 1, 0)        // Sapu lebih ke belakang
+        .rotate(15, 0, 0, 1)        // Miringkan ke luar (sedikit lebih tegak)
+        .rotate(-15, 1, 0, 0)       // Angkat sedikit
+        .scale(0.8, 0.8, 0.8);
+
+    // Wing 3 (Paling Kecil & Atas/Belakang)
+    this.nodes.earLWing3.localMatrix.setIdentity()
+        .translate(0.1, 0.1, -0.2) // Sedikit penyesuaian posisi
+        .rotate(45, 0, 1, 0)        // Sapu paling belakang
+        .rotate(10, 0, 0, 1)        // Miringkan ke luar (paling tegak)
+        .rotate(-15, 1, 0, 0)       // Angkat sedikit
+        .scale(0.6, 0.6, 0.6);
+
+    // Telinga Kanan (mirror)
+    this.nodes.earR.localMatrix.setIdentity()
+        .translate(0.75, 0.45, -0.15) // Mirror posisi X
+        .scale(-1, 1, 1);           // Mirror sumbu X lokal
+    this.nodes.earRBase.localMatrix.setIdentity()
+        .scale(0.7, 0.7, 0.7);
+
+    // Gunakan transformasi relatif yang sama
+    this.nodes.earRWing1.localMatrix.setIdentity()
+        .translate(0, 0, 0)
+        .rotate(25, 0, 1, 0)
+        .rotate(20, 0, 0, 1)
+        .rotate(-15, 1, 0, 0)
+        .scale(1.0, 1.0, 1.0);
+
+    this.nodes.earRWing2.localMatrix.setIdentity()
+        .translate(0.05, 0.05, -0.1)
+        .rotate(35, 0, 1, 0)
+        .rotate(15, 0, 0, 1)
+        .rotate(-15, 1, 0, 0)
+        .scale(0.8, 0.8, 0.8);
+
+    this.nodes.earRWing3.localMatrix.setIdentity()
+        .translate(0.1, 0.1, -0.2)
+        .rotate(45, 0, 1, 0)
+        .rotate(10, 0, 0, 1)
+        .rotate(-15, 1, 0, 0)
+        .scale(0.6, 0.6, 0.6);
+    // Mata
+    this.nodes.eyeL.localMatrix.setIdentity()
+        .translate(-0.6, 0.1, 0.75)
+        .scale(1.0, 1.2, 0.5);
+    this.nodes.eyeR.localMatrix.setIdentity()
+        .translate(0.6, 0.1, 0.75)
+        .scale(1.0, 1.2, 0.5);
+
+
+    this.nodes.neckOrb.localMatrix
+            .set(neckAttachMatrix)       // Mulai dari posisi & orientasi segmen leher
+            .translate(0, -1.2, -1);
+
+        // 5. Update Pangkal Ekor (relatif ke root)
+    this.nodes.tailRoot.localMatrix.set(finalBodyMatrix);
+
+    // 6. Update Bola Ekor (RELATIF KE INDUKNYA)
+    this.nodes.tailBall1.localMatrix.setIdentity()
+        .translate(0, 0, -0.3);
+    this.nodes.tailBall2.localMatrix.setIdentity()
+        .translate(0, 0, -0.4);
+    this.nodes.tailBall3.localMatrix.setIdentity()
+        .translate(0, 0, -0.3);
+};
+
+/**
+ * Getter sederhana untuk mendapatkan node akar dari scene graph.
+ */
+Dragonair.prototype.getRootNode = function() {
+    return this.rootNode;
+};
