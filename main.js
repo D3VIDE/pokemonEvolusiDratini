@@ -346,13 +346,32 @@ function main() {
     // var myDratini = new Dratini(gl, programInfo);
     // myDratini.init();
     // myDratini.getRootNode().localMatrix.translate(10, 0, 0); // Pindahkan ke samping
-
+    var worldBounds = 400;
     // ===============================================
     // ** Buat Aset Scene (Non-Model) **
     // ===============================================
     var groundPlaneGeo = createPlane(500, 500, groundGreen);
     var groundPlaneBuffers = initBuffers(gl, programInfo, groundPlaneGeo);
     
+
+    var grassGeo = createRandomGrass(1500, worldBounds, worldBounds,2.0, grassGreen)
+    var grassBuffers = initBuffers(gl,programInfo,grassGeo)
+
+    var cloudGeo = createSphere(1.0, 10, 8, white); // Geometri dasar awan
+    var cloudBuffers = initBuffers(gl, programInfo, cloudGeo);
+    var cloudRootNode = new SceneNode(null); // Induk untuk semua awan
+    var numClouds = 15;
+
+    for (let i = 0; i < numClouds; i++) {
+        let x = Math.random() * worldBounds - (worldBounds / 2);
+        let y = Math.random() * 10 + 35; // Ketinggian awan
+        let z = Math.random() * worldBounds - (worldBounds / 2);
+        let speed = (Math.random() * 0.005) + 0.005; // Kecepatan acak
+
+        var cloudClump = createCloudClump(cloudBuffers, new Matrix4().translate(x, y, z));
+        cloudClump.speed = speed; // Simpan kecepatan di node
+        cloudRootNode.children.push(cloudClump);
+    }
     // Bola merah kecil untuk menandai origin (untuk debug)
     var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]); 
     var oriPointBuffers = initBuffers(gl, programInfo, oriPointGeo);
@@ -366,8 +385,8 @@ function main() {
     // Pengaturan Kamera Interaktif
     let cameraAngleX = 20.0;
     let cameraAngleY = 0.0;
-    let cameraDistance = 25.0;
-    let cameraTarget = [0.0, 1.0, 0.0];
+    let cameraDistance = 35.0;
+    let cameraTarget = [0.0, 5.0, 0.0];
     let cameraPosition = [0.0, 0.0, 0.0];
     let isDragging = false;
     let lastMouseX = -1, lastMouseY = -1;
@@ -426,8 +445,8 @@ function main() {
     document.onkeydown = function(ev) { keysPressed[ev.key.toLowerCase()] = true; };
     document.onkeyup = function(ev) { keysPressed[ev.key.toLowerCase()] = false; };
 
-    // 5. Pengaturan render
-    gl.clearColor(0.8, 0.8, 0.8, 1.0);
+    // 5. Pengaturan render langit
+    gl.clearColor(skyBlue[0], skyBlue[1], skyBlue[2], skyBlue[3]);
     gl.enable(gl.DEPTH_TEST);
     gl.useProgram(shaderProgram);
 
@@ -460,6 +479,16 @@ function main() {
         // ===============================================
         // ** Proses Gambar **
         // ===============================================
+        let frameSpeed = elapsed / 16.667; // Normalisasi kecepatan
+        let worldHalf = worldBounds / 2;
+        for(let i = 0; i < cloudRootNode.children.length; i++) {
+            let cloud = cloudRootNode.children[i];
+            cloud.localMatrix.translate(cloud.speed * frameSpeed, 0, 0); // Gerak ke kanan (X+)
+            let xPos = cloud.localMatrix.elements[12]; 
+            if (xPos > worldHalf + 20) { // Wrap around
+                cloud.localMatrix.elements[12] = -(worldHalf + 20);
+            }
+        }
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -467,9 +496,13 @@ function main() {
         var groundModelMatrix = new Matrix4();
         groundModelMatrix.translate(0, groundY, -5);
         drawPart(gl, programInfo, groundPlaneBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        drawPart(gl, programInfo, grassBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
+        drawSceneGraph(gl, programInfo, cloudRootNode, new Matrix4(), viewMatrix, projMatrix, mvpMatrix, null); 
 
-        // Gambar Dragonair
+        // --- Gambar Model ---
+        // 4. Gambar Dragonair
         drawSceneGraph(gl, programInfo, myDragonair.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
+        
 
         requestAnimationFrame(tick);
     };
