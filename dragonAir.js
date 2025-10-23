@@ -53,9 +53,6 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
             // dan 0 di akhir (p=0.6)
             angleX_deg = -headLiftAngle * (1.0 - p_down);
         }
-        // else (p >= bodyFlat)
-        // 3. BADAN RATA (p > 0.6): angleX_deg tetap 0. 
-        // Total rotasi X sudah kembali ke 0, jadi badan akan rata.
         
 
         // Terapkan rotasi: Y dulu (belok), baru X (naik/turun)
@@ -125,12 +122,14 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
     }
 
     var finalMatrix = spineMatrices[spineMatrices.length - 1];
+    var neckAttachMatrix = spineMatrices[1] || new Matrix4();
 
     return {
         vertices: new Float32Array(vertices),
         colors: new Float32Array(colors),
         indices: new Uint16Array(indices),
         finalSpineMatrix: finalMatrix,
+        neckAttachMatrix: neckAttachMatrix,
         minY: minY, // Nilai Y terendah (sangat penting!)
         firstSpinePos: firstSpinePos
     };
@@ -207,56 +206,59 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
         return { vertices: new Float32Array(vertices), colors: new Float32Array(colors), indices: new Uint16Array(indices) };
     }
 
-/**
- * @param {number} baseScaleX - Skala dasar sumbu X
- * @param {number} baseScaleY - Skala dasar sumbu Y  
- * @param {number} height - Tinggi total
- * @param {number} radialSegments - Segmen radial
- * @param {number} heightSegments - Segmen tinggi
- * @param {Array} color - Warna [r, g, b, a]
- * @returns {object} Geometri elliptic paraboloid yang dimodifikasi
+/**BARU/PASTIKAN ADA:** Membuat geometri telinga Dragonair yang lebih organik.
+ * @param {number} baseScaleX - Skala dasar sumbu X.
+ * @param {number} baseScaleY - Skala dasar sumbu Y.
+ * @param {number} height - Tinggi total.
+ * @param {number} radialSegments - Segmen radial.
+ * @param {number} heightSegments - Segmen tinggi.
+ * @param {Array} color - Warna [r, g, b, a].
+ * @returns {object} Geometri telinga.
  */
 function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegments, heightSegments, color) {
     var vertices = [], colors = [], indices = [];
-    
-    // Parameter untuk bentuk yang lebih organik
-    const twistFactor = 0.2;
-    const flareFactor = 0.3;
-    
+    const twistFactor = 0.2; // Sedikit putaran
+    const flareFactor = 0.3; // Sedikit mekar di tengah
+
     for (let i = 0; i <= heightSegments; i++) {
-        const v = i / heightSegments;
-        
-        // Radius yang smooth dari kecil -> besar -> kecil
+        const v = i / heightSegments; // Progress tinggi (0 ke 1)
+
+        // Skala radius: Kecil -> Besar -> Kecil lagi
         let radiusScale;
-        if (v < 0.3) {
-            radiusScale = v / 0.3 * 0.6;
-        } else if (v < 0.7) {
-            radiusScale = 0.6 + (v - 0.3) / 0.4 * 0.4;
-        } else {
-            radiusScale = 1.0 - (v - 0.7) / 0.3 * 0.8;
+        if (v < 0.3) { // Bagian pangkal
+            radiusScale = (v / 0.3) * 0.7; // Mulai dari 0, naik ke 0.7
+        } else if (v < 0.7) { // Bagian tengah (mekar)
+            radiusScale = 0.7 + ((v - 0.3) / 0.4) * 0.3; // Dari 0.7 naik ke 1.0
+        } else { // Bagian ujung (meruncing)
+            radiusScale = 1.0 - ((v - 0.7) / 0.3) * 0.9; // Dari 1.0 turun ke 0.1
         }
-        
-        const y = v * height;
-        const twist = v * Math.PI * twistFactor;
-        
+        // Pastikan tidak negatif di ujung
+         radiusScale = Math.max(0.05, radiusScale);
+
+
+        const y = v * height; // Posisi Y aktual
+        const twist = v * Math.PI * twistFactor; // Putaran berdasarkan tinggi
+
         for (let j = 0; j <= radialSegments; j++) {
-            const u = j / radialSegments;
-            const theta = u * Math.PI * 2 + twist;
-            
+            const u = j / radialSegments; // Progress keliling (0 ke 1)
+            const theta = u * Math.PI * 2 + twist; // Sudut keliling + putaran
+
+            // Gunakan baseScaleY untuk Z (ketebalan) dan baseScaleX untuk X (lebar)
             const x = Math.cos(theta) * baseScaleX * radiusScale;
-            const z = Math.sin(theta) * baseScaleY * radiusScale;
-            
-            vertices.push(x, y, z);
-            
+            const z = Math.sin(theta) * baseScaleY * radiusScale; // Lebih tipis
+
+            vertices.push(x, y, z); // Tambahkan vertex
+
+            // Tambahkan warna
             if (Array.isArray(color) && color.length >= 3) {
                 colors.push(color[0], color[1], color[2], color[3] || 1.0);
             } else {
-                colors.push(0.9, 0.95, 1.0, 1.0);
+                colors.push(0.9, 0.95, 1.0, 1.0); // Default earWhite
             }
         }
     }
-    
-    // Generate indices
+
+    // Generate indices (sama seperti sphere/cylinder)
     for (let i = 0; i < heightSegments; i++) {
         for (let j = 0; j < radialSegments; j++) {
             const first = (i * (radialSegments + 1)) + j;
@@ -265,54 +267,10 @@ function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegm
             indices.push(second, second + 1, first + 1);
         }
     }
-    
+
     return {
         vertices: new Float32Array(vertices),
         colors: new Float32Array(colors),
         indices: new Uint16Array(indices)
-    };
-}
-
-
-function createEllipticParaboloid(a, b, c, segments, rings, color) {
-    var vertices = [], colors = [], indices = [];
-
-    for (var i = 0; i <= rings; i++) {
-        var u = i / rings; 
-        var u_squared = u * u;
-
-        for (var j = 0; j <= segments; j++) {
-            var v = (j * 2 * Math.PI) / segments; 
-
-            var x = a * u * Math.cos(v);
-            var y = b * u * Math.sin(v);
-            // **PERBAIKAN: Buka ke arah Z POSITIF (ke depan)**
-            var z = c * u_squared; 
-
-            vertices.push(x, y, z);
-            
-            if (Array.isArray(color) && color.length >= 3) {
-                colors.push(color[0], color[1], color[2], color[3] || 1.0);
-            } else {
-                colors.push(1.0, 1.0, 1.0, 1.0);
-            }
-        }
-    }
-
-    // Generate indices
-    for (var i = 0; i < rings; i++) {
-        for (var j = 0; j < segments; j++) {
-            var first = (i * (segments + 1)) + j;
-            var second = first + segments + 1;
-            
-            indices.push(first, second, first + 1);
-            indices.push(second, second + 1, first + 1);
-        }
-    }
-
-    return { 
-        vertices: new Float32Array(vertices), 
-        colors: new Float32Array(colors), 
-        indices: new Uint16Array(indices) 
     };
 }

@@ -8,6 +8,7 @@ var white = [1.0, 1.0, 1.0, 1.0];
 var darkPurple = [0.2, 0.0, 0.2, 1.0];
 var groundGreen = [0.4, 0.8, 0.4, 1.0];
 var earWhite = [0.9, 0.9, 1.0, 1.0];
+var crystalBlue = [0.23, 0.30, 0.79, 1.0];
 
 // =================================================================
 // Definisi Scene Graph
@@ -75,10 +76,21 @@ function Dragonair(gl, programInfo) {
     
     // Variabel tubuh (sekarang jadi properti instance)
     this.bodySegmentsCount = 20;
-    this.segmentLength = 0.8;
+    this.segmentLength = 0.9;
     this.startRadius = 0.6;
     this.maxRadius = 0.8;
     this.endRadius = 0.1;
+
+    //**untuk animasi
+    this.position = [0, 0, 0];       // Posisi X, Y (di ground), Z di dunia
+    this.targetPosition = null;     // Target [x, z] berikutnya
+    this.currentAngleY = 0;         // Sudut hadap saat ini (derajat)
+    this.targetAngleY = 0;          // Sudut target hadap (derajat)
+    this.moveSpeed = 5.0;           // Unit per detik
+    this.turnSpeed = 90.0;          // Derajat per detik
+    this.worldBounds = 400;         // Batas dunia (samakan dengan di main)
+    this.targetReachedThreshold = 2.0; // Jarak minimum untuk ganti target
+    this.facingThreshold = 5.0;       // Toleransi sudut sebelum bergerak maju
 }
 
 /**
@@ -88,14 +100,16 @@ function Dragonair(gl, programInfo) {
 Dragonair.prototype.init = function() {
     var gl = this.gl;
     var programInfo = this.programInfo;
+    
 
     // 1. Buat Geometri Statis
     // (Geometri tubuh dibuat di 'update')
     var headGeo = createSphere(1.0, 30, 30, blue);
     var snoutGeo = createSphere(0.6, 20, 20, snoutBlue);
     var hornGeo = createCone(0.3, 1.0, 10, white);
-    var earBaseGeo = createSphere(0.25, 10, 10, earWhite); 
-    var earWingGeo = createEllipticParaboloid(0.8, 0.15, 1.2, 12, 5, earWhite);
+    var earBaseGeo = createSphere(0.25, 10, 10, earWhite);
+    var earWingGeo = createDragonairEarParaboloid(0.8, 0.2, 1.5, 10, 6, earWhite);
+    var neckOrbGeo = createSphere(0.3, 12, 12, crystalBlue);
     var eyeGeo = createSphere(0.15, 10, 10, darkPurple);
     var tailBall1Geo = createSphere(0.2, 10, 10, blue);
     var tailBall2Geo = createSphere(0.15, 10, 10, blue); //!! ** ini tidak digunakan untuk aksesories **
@@ -113,6 +127,7 @@ Dragonair.prototype.init = function() {
         initBuffers(gl, programInfo, tailBall2Geo),
         initBuffers(gl, programInfo, tailBall3Geo)
     ];
+    var neckOrbBuffers = initBuffers(gl, programInfo, neckOrbGeo);
 
     // 3. Bangun Scene Graph
     // Simpan semua node di 'this.nodes' agar bisa di-update
@@ -159,6 +174,9 @@ Dragonair.prototype.init = function() {
     this.nodes.eyeR = new SceneNode(eyeBuffers);
     this.nodes.head.children.push(this.nodes.eyeR);
 
+    //orb
+    this.nodes.neckOrb = new SceneNode(neckOrbBuffers);
+    this.rootNode.children.push(this.nodes.neckOrb);
     // Ekor
     this.nodes.tailRoot = new SceneNode(null);
     this.rootNode.children.push(this.nodes.tailRoot);
@@ -168,6 +186,8 @@ Dragonair.prototype.init = function() {
     this.nodes.tailBall1.children.push(this.nodes.tailBall2);
     this.nodes.tailBall3 = new SceneNode(tailBallBuffers[2]);
     this.nodes.tailBall2.children.push(this.nodes.tailBall3);
+
+
 };
 
 /**
@@ -175,9 +195,10 @@ Dragonair.prototype.init = function() {
  * @param {number} now - Waktu saat ini (misalnya dari Date.now()).
  * @param {number} groundY - Posisi Y dari daratan.
  */
-Dragonair.prototype.update = function(now, groundY) {
+Dragonair.prototype.update = function(now, groundY,elapsed) {
     var gl = this.gl;
     var programInfo = this.programInfo;
+    var dt = elapsed / 1000.0; // Waktu delta dalam detik
 
     // --- ANIMASI: Buat ulang tubuh ---
     this.bodyData = createSmoothBody(
@@ -205,18 +226,69 @@ Dragonair.prototype.update = function(now, groundY) {
         finalBodyMatrix = new Matrix4(); 
     }
     
+    var neckAttachMatrix = this.bodyData.neckAttachMatrix || new Matrix4();
+    if(!neckAttachMatrix){
+        neckAttachMatrix = new Matrix4();
+    }
     // --- Hitung Posisi Y ---
     if (this.bodyData.minY === undefined) 
     { 
         console.error("bodyData.minY tidak terdefinisi!"); 
         return;
      }
-    var modelY = groundY - this.bodyData.minY + 0.01; 
+    var modelGroundY = groundY - this.bodyData.minY + 0.01; 
 
+     //* Logika Dragon air berjalan
+
+     // 1. Cek & Tentukan Target Baru jika perlu
+    if (this.targetPosition === null ||
+        (Math.abs(this.position[0] - this.targetPosition[0]) < this.targetReachedThreshold &&
+         Math.abs(this.position[2] - this.targetPosition[2]) < this.targetReachedThreshold))
+    {
+        // Buat target XZ acak baru di dalam worldBounds
+        let padding = 30; // Jarak dari tepi
+        this.targetPosition = [
+            (Math.random() * (this.worldBounds - padding * 2)) - (this.worldBounds / 2 - padding),
+            (Math.random() * (this.worldBounds - padding * 2)) - (this.worldBounds / 2 - padding)
+        ];
+    }
+            // Hitung sudut target (radians) lalu konversi ke derajat
+        let dx = this.targetPosition[0] - this.position[0];
+        let dz = this.targetPosition[1] - this.position[2];
+        let distToTarget = Math.sqrt(dx * dx + dz * dz);
+    // 2. Belok Menghadap Target (Interpolasi Sudut)
+    if (distToTarget > this.targetReachedThreshold) {
+        // A. Hitung sudut aktual ke target (untuk rotasi)
+        let targetAngleRad = Math.atan2(dx, dz); // Radians
+        this.currentAngleY = targetAngleRad * 180.0 / Math.PI; // Langsung set sudut hadap (derajat)
+        // Normalisasi sudut (opsional, tapi baik untuk konsistensi)
+        while (this.currentAngleY > 180) this.currentAngleY -= 360;
+        while (this.currentAngleY < -180) this.currentAngleY += 360;
+
+        // B. Hitung jumlah pergerakan frame ini
+        let moveAmount = this.moveSpeed * dt;
+
+        // C. Jangan melewati target
+        if (moveAmount > distToTarget) {
+            moveAmount = distToTarget; // Pindah tepat ke target
+        }
+
+        // D. Normalisasi vektor arah untuk pergerakan
+        let moveDir = normalizeVector([dx, 0, dz]); // Fungsi helper normalizeVector diperlukan
+
+        // E. Update posisi
+        this.position[0] += moveDir[0] * moveAmount;
+        this.position[2] += moveDir[2] * moveAmount;
+
+    } else {
+        // Target tercapai, cari target baru di frame berikutnya
+        this.targetPosition = null;
+    }
     // --- Update Matriks Lokal di Scene Graph ---
     
     // 1. Update Root (posisi global model)
-    this.rootNode.localMatrix.setIdentity().translate(0, modelY, -5);
+    this.rootNode.localMatrix.setRotate(this.currentAngleY, 0, 1, 0); // Atur rotasi dulu
+    this.rootNode.localMatrix.translate(this.position[0], modelGroundY, this.position[2]);
 
     // 2. Update Body (ganti buffer-nya dengan yang baru dibuat)
     this.nodes.body.buffers = this.bodyBuffers; // Ganti buffer
@@ -230,58 +302,69 @@ Dragonair.prototype.update = function(now, groundY) {
 
     // 4. Update anak-anak kepala (RELATIF KE KEPALA)
     this.nodes.snout.localMatrix.setIdentity()
-        .translate(0, -0.3, 0.8) // Posisi moncong
-        .scale(1.0, 0.8, 1.0); // Skala moncong
+        .scale(1.0, 1.0, 1.3); // Hanya skala
     
     this.nodes.horn.localMatrix.setIdentity()
         .translate(0, 0.8, 0.5) // Posisi tanduk
         .rotate(15, 1, 0, 0); // Rotasi tanduk
 
-    // Telinga Kiri
     this.nodes.earL.localMatrix.setIdentity()
-        .translate(-0.8, 0.4, -0.2); 
-    this.nodes.earLBase.localMatrix.setIdentity()
+        .translate(-0.75, 0.45, -0.15); // Sedikit disesuaikan
+    this.nodes.earLBase.localMatrix.setIdentity()
         .scale(0.7, 0.7, 0.7);
-    this.nodes.earLWing1.localMatrix.setIdentity()
-        .translate(0, 0, 0)
-        .rotate(10, 0, 1, 0)
-        .rotate(90, 0, 0, 1)
-        .scale(1.0, 1.0, 0.4); 
-    this.nodes.earLWing2.localMatrix.setIdentity()
-        .translate(0, 0, -0.05)
-        .rotate(15, 0, 1, 0)
-        .rotate(85, 0, 0, 1)
-        .scale(0.8, 0.8, 0.8)
-        .scale(1.0, 1.0, 0.4); 
-    this.nodes.earLWing3.localMatrix.setIdentity()
-        .translate(0, 0, -0.1)
-        .rotate(20, 0, 1, 0)
-        .rotate(80, 0, 0, 1)
-        .scale(0.6, 0.6, 0.6)
-        .scale(1.0, 1.0, 0.4); 
 
-    // Telinga Kanan (mirror)
-    this.nodes.earR.localMatrix.setIdentity()
-        .translate(0.8, 0.4, -0.2).scale(-1, 1, 1); 
-    this.nodes.earRBase.localMatrix.setIdentity()
+    // Wing 1 (Paling Besar & Bawah)
+    this.nodes.earLWing1.localMatrix.setIdentity()
+        .translate(0, 0, 0)
+        .rotate(25, 0, 1, 0)        // Sapu ke belakang (Y)
+        .rotate(20, 0, 0, 1)        // **Miringkan ke LUAR** (Z positif)
+        .rotate(-15, 1, 0, 0)       // Sedikit angkat ke atas (X negatif kecil)
+        .scale(1.0, 1.0, 1.0);
+
+    // Wing 2 (Medium & Tengah)
+    this.nodes.earLWing2.localMatrix.setIdentity()
+        .translate(0.05, 0.05, -0.1) // Sedikit penyesuaian posisi
+        .rotate(35, 0, 1, 0)        // Sapu lebih ke belakang
+        .rotate(15, 0, 0, 1)        // Miringkan ke luar (sedikit lebih tegak)
+        .rotate(-15, 1, 0, 0)       // Angkat sedikit
+        .scale(0.8, 0.8, 0.8);
+
+    // Wing 3 (Paling Kecil & Atas/Belakang)
+    this.nodes.earLWing3.localMatrix.setIdentity()
+        .translate(0.1, 0.1, -0.2) // Sedikit penyesuaian posisi
+        .rotate(45, 0, 1, 0)        // Sapu paling belakang
+        .rotate(10, 0, 0, 1)        // Miringkan ke luar (paling tegak)
+        .rotate(-15, 1, 0, 0)       // Angkat sedikit
+        .scale(0.6, 0.6, 0.6);
+
+    // Telinga Kanan (mirror)
+    this.nodes.earR.localMatrix.setIdentity()
+        .translate(0.75, 0.45, -0.15) // Mirror posisi X
+        .scale(-1, 1, 1);           // Mirror sumbu X lokal
+    this.nodes.earRBase.localMatrix.setIdentity()
         .scale(0.7, 0.7, 0.7);
-    this.nodes.earRWing1.localMatrix.setIdentity()
-        .translate(0, 0, 0)
-        .rotate(10, 0, 1, 0)
-        .rotate(90, 0, 0, 1)
-        .scale(1.0, 1.0, 0.4);
-    this.nodes.earRWing2.localMatrix.setIdentity()
-        .translate(0, 0, -0.05).rotate(15, 0, 1, 0)
-        .rotate(85, 0, 0, 1)
-        .scale(0.8, 0.8, 0.8)
-        .scale(1.0, 1.0, 0.4);
-    this.nodes.earRWing3.localMatrix.setIdentity()
-        .translate(0, 0, -0.1)
-        .rotate(20, 0, 1, 0)
-        .rotate(80, 0, 0, 1)
-        .scale(0.6, 0.6, 0.6)
-        .scale(1.0, 1.0, 0.4);
 
+    // Gunakan transformasi relatif yang sama
+    this.nodes.earRWing1.localMatrix.setIdentity()
+        .translate(0, 0, 0)
+        .rotate(25, 0, 1, 0)
+        .rotate(20, 0, 0, 1)
+        .rotate(-15, 1, 0, 0)
+        .scale(1.0, 1.0, 1.0);
+
+    this.nodes.earRWing2.localMatrix.setIdentity()
+        .translate(0.05, 0.05, -0.1)
+        .rotate(35, 0, 1, 0)
+        .rotate(15, 0, 0, 1)
+        .rotate(-15, 1, 0, 0)
+        .scale(0.8, 0.8, 0.8);
+
+    this.nodes.earRWing3.localMatrix.setIdentity()
+        .translate(0.1, 0.1, -0.2)
+        .rotate(45, 0, 1, 0)
+        .rotate(10, 0, 0, 1)
+        .rotate(-15, 1, 0, 0)
+        .scale(0.6, 0.6, 0.6);
     // Mata
     this.nodes.eyeL.localMatrix.setIdentity()
         .translate(-0.6, 0.1, 0.75)
@@ -290,7 +373,12 @@ Dragonair.prototype.update = function(now, groundY) {
         .translate(0.6, 0.1, 0.75)
         .scale(1.0, 1.2, 0.5);
 
-    // 5. Update Pangkal Ekor (relatif ke root)
+
+    this.nodes.neckOrb.localMatrix
+            .set(neckAttachMatrix)       // Mulai dari posisi & orientasi segmen leher
+            .translate(0, -1.2, -1);
+
+        // 5. Update Pangkal Ekor (relatif ke root)
     this.nodes.tailRoot.localMatrix.set(finalBodyMatrix);
 
     // 6. Update Bola Ekor (RELATIF KE INDUKNYA)
@@ -494,7 +582,7 @@ function main() {
         // ** OOP: Update Model **
         // ===============================================
         // Panggil 'update' pada instance Dragonair
-        myDragonair.update(now, groundY);
+        myDragonair.update(now, groundY,elapsed);
         
         // ===============================================
         // ** Proses Gambar **
@@ -593,4 +681,13 @@ function initBuffers(gl, program, geo) {
      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
      return { vbo: vbo, cbo: cbo, ibo: ibo, n: geo.indices.length };
+}
+
+function normalizeVector(v) {
+    let len = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    if (len > 0.00001) { // Hindari pembagian dengan nol
+        return [v[0]/len, v[1]/len, v[2]/len];
+    } else {
+        return [0, 0, 0];
+    }
 }
