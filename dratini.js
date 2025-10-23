@@ -160,7 +160,7 @@ function createEllipticParaboloid(a, b, c, segments, rings, color) {
   };
 }
 
-function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
+function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
   var vertices = [],
     colors = [],
     indices = [],
@@ -421,7 +421,7 @@ DratiniModel.prototype.update = function (elapsed, worldBounds) {
   // Gunakan posisi X global sebagai input animasi gelombang
   this.currentRotation = this.position[0] * 20;
 
-  this.bodyData = createSmoothBody(this.bodySegmentsCount, this.segmentLength, this.startRadius, this.maxRadius, this.endRadius, this.currentRotation);
+  this.bodyData = createDratiniSmoothBody(this.bodySegmentsCount, this.segmentLength, this.startRadius, this.maxRadius, this.endRadius, this.currentRotation);
 
   if (!this.bodyData) {
     console.error("Gagal membuat bodyData");
