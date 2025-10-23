@@ -167,6 +167,27 @@ function main() {
     document.onkeydown = function(ev) { keysPressed[ev.key.toLowerCase()] = true; };
     document.onkeyup = function(ev) { keysPressed[ev.key.toLowerCase()] = false; };
 
+    canvas.onwheel = function(ev) {
+        ev.preventDefault(); // Mencegah halaman web ikut ter-scroll
+
+        // Tentukan seberapa sensitif zoom
+        let zoomSensitivity = 0.05;
+        
+        // ev.deltaY positif jika scroll ke bawah (zoom out)
+        // ev.deltaY negatif jika scroll ke atas (zoom in)
+        cameraDistance += ev.deltaY * zoomSensitivity;
+
+        // Batasi jarak zoom (misalnya, min 5, max 100)
+        cameraDistance = Math.max(5.0, Math.min(100.0, cameraDistance));
+
+        updateCamera(); // Perbarui matriks kamera
+    };
+
+
+    document.onkeydown = function(ev) { 
+    keysPressed[ev.key.toLowerCase()] 
+    = true; 
+    };
 
     // ===============================================
     // Setup Hirarki Scene Graph **
