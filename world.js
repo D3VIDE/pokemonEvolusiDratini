@@ -2,7 +2,8 @@
     var groundGreen = [0.4, 0.8, 0.4, 1.0];
     var skyBlue = [0.52, 0.80, 0.92, 1.0];
     var grassGreen = [0.2,0.7,0.2,1.0];
-
+    var mountainBrown = [0.55, 0.45, 0.3, 1.0];
+    
     function createPlane(width, depth, color) {
         var halfWidth = width / 2;
         var halfDepth = depth / 2;

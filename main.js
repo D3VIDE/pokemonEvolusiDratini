@@ -136,6 +136,20 @@ function main() {
     cloudClump.speed = speed; // Simpan kecepatan di node
     cloudRootNode.children.push(cloudClump);
   }
+
+    var mountainGeo = createCone(40, 60, 10, mountainBrown); // Dasar 40, Tinggi 80
+    var mountainBuffers = initBuffers(gl, programInfo, mountainGeo);
+    var mountainRootNode = new SceneNode(null); // Induk untuk semua gunung
+
+    let m1_mat = new Matrix4().translate(-150, 0, -180).scale(1.5, 2.0, 1.5);
+    mountainRootNode.children.push(new SceneNode(mountainBuffers, m1_mat));
+
+    let m2_mat = new Matrix4().translate(120, 0, -190).scale(1.0, 1.5, 1.0);
+    mountainRootNode.children.push(new SceneNode(mountainBuffers, m2_mat));
+
+    let m3_mat = new Matrix4().translate(20, 0, -200).scale(2.0, 2.5, 2.0);
+    mountainRootNode.children.push(new SceneNode(mountainBuffers, m3_mat));
+
   // Bola merah kecil untuk menandai origin (untuk debug)
   var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]);
   var oriPointBuffers = initBuffers(gl, programInfo, oriPointGeo);
@@ -290,6 +304,8 @@ function main() {
     drawPart(gl, programInfo, grassBuffers, groundModelMatrix, viewMatrix, projMatrix, mvpMatrix);
     drawSceneGraph(gl, programInfo, cloudRootNode, new Matrix4(), viewMatrix, projMatrix, mvpMatrix, null);
 
+    var mountainParentMatrix = new Matrix4().translate(0, groundY, 0);
+    drawSceneGraph(gl, programInfo, mountainRootNode, mountainParentMatrix, viewMatrix, projMatrix, mvpMatrix, null);
     // --- Gambar Model ---
     // 4. Gambar Dragonair
     drawSceneGraph(gl, programInfo, myDragonair.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
