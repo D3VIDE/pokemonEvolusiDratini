@@ -464,11 +464,31 @@ function main() {
         let forward = [Math.sin(radY), 0, Math.cos(radY)];
         let right = [Math.cos(radY), 0, -Math.sin(radY)];
         let moved = false;
-        if (keysPressed['w']) { cameraTarget[0] += forward[0] * moveSpeed; cameraTarget[2] += forward[2] * moveSpeed; moved = true; }
-        if (keysPressed['s']) { cameraTarget[0] -= forward[0] * moveSpeed; cameraTarget[2] -= forward[2] * moveSpeed; moved = true; }
-        if (keysPressed['a']) { cameraTarget[0] -= right[0] * moveSpeed; cameraTarget[2] -= right[2] * moveSpeed; moved = true; }
-        if (keysPressed['d']) { cameraTarget[0] += right[0] * moveSpeed; cameraTarget[2] += right[2] * moveSpeed; moved = true; }
-        if (moved) { updateCamera(); }
+        if (keysPressed['w']) 
+        { 
+            cameraTarget[0] += forward[0] * moveSpeed; 
+            cameraTarget[2] += forward[2] * moveSpeed; 
+            moved = true; 
+        }
+        if (keysPressed['s']) 
+        {   cameraTarget[0] -= forward[0] * moveSpeed; 
+            cameraTarget[2] -= forward[2] * moveSpeed; 
+            moved = true; 
+        }
+        if (keysPressed['a']) 
+        {   cameraTarget[0] -= right[0] * moveSpeed; 
+            cameraTarget[2] -= right[2] * moveSpeed; 
+            moved = true; 
+        }
+        if (keysPressed['d']) 
+        {   cameraTarget[0] += right[0] * moveSpeed; 
+            cameraTarget[2] += right[2] * moveSpeed; 
+            moved = true; 
+        }
+        if (moved)
+         { 
+            updateCamera();
+         }
 
         // ===============================================
         // ** OOP: Update Model **
