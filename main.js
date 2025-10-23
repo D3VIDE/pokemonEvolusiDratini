@@ -302,6 +302,7 @@ Dragonair.prototype.update = function(now, groundY,elapsed) {
 
     // 4. Update anak-anak kepala (RELATIF KE KEPALA)
     this.nodes.snout.localMatrix.setIdentity()
+        .translate(0, -0.3, 0.8)
         .scale(1.0, 1.0, 1.3); // Hanya skala
     
     this.nodes.horn.localMatrix.setIdentity()
