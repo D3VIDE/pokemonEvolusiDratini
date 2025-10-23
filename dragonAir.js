@@ -185,6 +185,7 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
         return { vertices: new Float32Array(vertices), colors: new Float32Array(colors), indices: new Uint16Array(indices) };
     }
 
+
     function createCone(baseRadius, height, segments, color) {
         var vertices = [], colors = [], indices = [];
         vertices.push(0, height, 0); // Puncak
@@ -193,7 +194,7 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
          } else { colors.push(1.0, 1.0, 1.0, 1.0); }
 
         // Vertex dasar lingkaran
-        for (var i = 0; i <= segments; i++) {
+        for (var i = 0; i <= segments; i++) { //? segment dari body segment count
             var angle = (i * 2 * Math.PI) / segments;
             var x = baseRadius * Math.cos(angle);
             var z = baseRadius * Math.sin(angle);
@@ -203,12 +204,12 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
              } else { colors.push(1.0, 1.0, 1.0, 1.0); }
         }
 
-        // Indices untuk sisi kerucut
+        // Indices untuk sisi kerucut 
         for (var i = 1; i <= segments; i++) {
             // Index vertex puncak adalah 0
             // Index vertex dasar saat ini adalah i
             // Index vertex dasar berikutnya (wrap around jika i == segments)
-            var nextIndex = (i === segments) ? 1 : i + 1;
+            var nextIndex = (i === segments) ? 1 : i + 1; //cek jika i == segment error handling
             indices.push(0, i, nextIndex);
         }
 
@@ -231,6 +232,8 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
  * @param {Array} color - Warna [r, g, b, a].
  * @returns {object} Geometri telinga.
  */
+
+//! masih ada bug
 function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegments, heightSegments, color) {
     var vertices = [], colors = [], indices = [];
     const twistFactor = 0.2; // Sedikit putaran
@@ -279,10 +282,33 @@ function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegm
         for (let j = 0; j < radialSegments; j++) {
             const first = (i * (radialSegments + 1)) + j;
             const second = first + radialSegments + 1;
-            indices.push(first, second, first + 1);
-            indices.push(second, second + 1, first + 1);
+            indices.push(first, second, first + 1); //sisi segitiga 1
+            indices.push(second, second + 1, first + 1); // segitiga 2
         }
     }
+    /**
+    * (i+1)  second --- second+1
+                /|       /|
+              /  |      / |
+    (i)   first - first+1
+
+        first ------ first+1
+       |         /
+      |       /
+    second  /
+        
+    Contoh:
+    Ring 1 (i=0): vertices 0,1,2,3,4
+    Ring 2 (i=1): vertices 5,6,7,8,9  
+    Ring 3 (i=2): vertices 10,11,12,13,14
+    Untuk i=0, j=0:
+
+    first = 0, second = 5, first+1 = 1, second+1 = 6
+
+    Segitiga 1: 0, 5, 1
+
+    Segitiga 2: 5, 6, 1
+    */
 
     return {
         vertices: new Float32Array(vertices),
@@ -348,7 +374,7 @@ Dragonair.prototype.init = function() {
     var neckOrbGeo = createSphere(0.3, 12, 12, crystalBlue);
     var eyeGeo = createSphere(0.15, 10, 10, darkPurple);
     var tailBall1Geo = createSphere(0.2, 10, 10, blue);
-    var tailBall2Geo = createSphere(0.15, 10, 10, blue); //!! ** ini tidak digunakan untuk aksesories **
+    var tailBall2Geo = createSphere(0.15, 10, 10, blue); 
     var tailBall3Geo = createSphere(0.1, 10, 10, blue);
 
     // 2. Inisialisasi Buffer Statis
@@ -364,6 +390,37 @@ Dragonair.prototype.init = function() {
         initBuffers(gl, programInfo, tailBall3Geo)
     ];
     var neckOrbBuffers = initBuffers(gl, programInfo, neckOrbGeo);
+
+
+    /*
+    Visualisasi Root: 
+    this.rootNode = kosongan (empty tanpa buffer)
+    ├── nodes.body (Badan utuh yang meliuk 🐍)
+    ├── nodes.neckOrb (Bola di leher 💎)
+    ├── nodes.tailRoot (Pangkal ekor, menempel di ujung badan)
+    │   └── nodes.tailBall1 (Bola ekor 1)
+    │       └── nodes.tailBall2 (Bola ekor 2)
+    │           └── nodes.tailBall3 (Bola ekor 3)
+    │
+    └── nodes.head (Kepala ⚪)
+        ├── nodes.snout (Moncong)
+        ├── nodes.horn (Tanduk)
+        ├── nodes.eyeL (Mata Kiri)
+        ├── nodes.eyeR (Mata Kanan)
+        │
+        ├── nodes.earL (Grup Telinga Kiri - node 'kosong' untuk grup)
+        │   ├── nodes.earLBase (Pangkal telinga)
+        │   ├── nodes.earLWing1 (Sayap telinga 1)
+        │   ├── nodes.earLWing2 (Sayap telinga 2)
+        │   └── nodes.earLWing3 (Sayap telinga 3)
+        │
+        └── nodes.earR (Grup Telinga Kanan - node 'kosong' untuk grup)
+            ├── nodes.earRBase
+            ├── nodes.earRWing1
+            ├── nodes.earRWing2
+            └── nodes.earRWing3
+
+    */
 
     // 3. Bangun Scene Graph
     // Simpan semua node di 'this.nodes' agar bisa di-update
@@ -474,57 +531,104 @@ Dragonair.prototype.update = function(now, groundY,elapsed) {
      }
     var modelGroundY = groundY - this.bodyData.minY + 0.01; 
 
-     //* Logika Dragon air berjalan
+ if (this.bodyData.minY === undefined) {
+        console.error("bodyData.minY tidak terdefinisi!");
+        return;
+    }
+    var modelGroundY = groundY - this.bodyData.minY + 0.01;
 
-     // 1. Cek & Tentukan Target Baru jika perlu
-    if (this.targetPosition === null ||
-        (Math.abs(this.position[0] - this.targetPosition[0]) < this.targetReachedThreshold &&
-         Math.abs(this.position[2] - this.targetPosition[2]) < this.targetReachedThreshold))
-    {
-        // Buat target XZ acak baru di dalam worldBounds
-        let padding = 30; // Jarak dari tepi
+    //* Logika Dragon air berjalan
+    if (this.targetPosition === null) {
+        let padding = 30;
         this.targetPosition = [
             (Math.random() * (this.worldBounds - padding * 2)) - (this.worldBounds / 2 - padding),
             (Math.random() * (this.worldBounds - padding * 2)) - (this.worldBounds / 2 - padding)
         ];
     }
-            // Hitung sudut target (radians) lalu konversi ke derajat
-        let dx = this.targetPosition[0] - this.position[0];
-        let dz = this.targetPosition[1] - this.position[2];
-        let distToTarget = Math.sqrt(dx * dx + dz * dz);
-    // 2. Belok Menghadap Target (Interpolasi Sudut)
+
+    let dx = this.targetPosition[0] - this.position[0];
+    let dz = this.targetPosition[1] - this.position[2]; // `targetPosition[1]` (Z) - `position[2]` (Z)
+    let distToTarget = Math.sqrt(dx * dx + dz * dz);
+
     if (distToTarget > this.targetReachedThreshold) {
-        // A. Hitung sudut aktual ke target (untuk rotasi)
-        let targetAngleRad = Math.atan2(dx, dz); // Radians
-        this.currentAngleY = targetAngleRad * 180.0 / Math.PI; // Langsung set sudut hadap (derajat)
-        // Normalisasi sudut (opsional, tapi baik untuk konsistensi)
-        while (this.currentAngleY > 180) this.currentAngleY -= 360;
-        while (this.currentAngleY < -180) this.currentAngleY += 360;
+        // A. Hitung SUDUT TARGET
+        let targetAngleRad = Math.atan2(dx, dz);
+        this.targetAngleY = targetAngleRad * 180.0 / Math.PI;
 
-        // B. Hitung jumlah pergerakan frame ini
-        let moveAmount = this.moveSpeed * dt;
+        // B. Hitung perbedaan sudut
+        let angleDiff = this.targetAngleY - this.currentAngleY;
+        while (angleDiff > 180) angleDiff -= 360;
+        while (angleDiff < -180) angleDiff += 360;
 
-        // C. Jangan melewati target
-        if (moveAmount > distToTarget) {
-            moveAmount = distToTarget; // Pindah tepat ke target
+        // Cek: Apakah kita SUDAH menghadap target?
+        if (Math.abs(angleDiff) < this.facingThreshold) {
+            
+            // E. YA: Terapkan GERAK MAJU
+            let currentAngleRad = this.currentAngleY * Math.PI / 180.0;
+            let moveDirX = Math.sin(currentAngleRad);
+            let moveDirZ = Math.cos(currentAngleRad);
+            let moveAmount = this.moveSpeed * dt;
+            
+            if (moveAmount > distToTarget) {
+                moveAmount = distToTarget;
+            }
+
+            // Update posisi (bergerak maju lurus)
+            this.position[0] += moveDirX * moveAmount;
+            this.position[2] += moveDirZ * moveAmount;
+
+        } else {
+            
+            // C. TIDAK: Terapkan BELOK
+            let turnAmount = this.turnSpeed * dt;
+            
+            if (Math.abs(angleDiff) < turnAmount) {
+                this.currentAngleY = this.targetAngleY;
+            } else if (angleDiff > 0) {
+                this.currentAngleY += turnAmount;
+            } else {
+                this.currentAngleY -= turnAmount;
+            }
+            
+            while (this.currentAngleY > 180) this.currentAngleY -= 360;
+            while (this.currentAngleY < -180) this.currentAngleY += 360;
         }
 
-        // D. Normalisasi vektor arah untuk pergerakan
-        let moveDir = normalizeVector([dx, 0, dz]); // Fungsi helper normalizeVector diperlukan
-
-        // E. Update posisi
-        this.position[0] += moveDir[0] * moveAmount;
-        this.position[2] += moveDir[2] * moveAmount;
-
     } else {
-        // Target tercapai, cari target baru di frame berikutnya
-        this.targetPosition = null;
+        // ========================================================
+        // ** PERBAIKAN 1: Logika "Teleport" di Border (YANG BARU) **
+        // Target tercapai. Cek apakah kita di pinggir.
+        // ========================================================
+        let halfBounds = this.worldBounds / 2;
+        let borderPadding = 40.0; // Padding deteksi (harus > padding spawn)
+        
+        if (this.position[0] > halfBounds - borderPadding ||
+            this.position[0] < -halfBounds + borderPadding ||
+            this.position[2] > halfBounds - borderPadding ||
+            this.position[2] < -halfBounds + borderPadding) {
+            
+            // YA: Target ada di pinggir. "Muter" (target baru adalah di tengah)
+            this.targetPosition = [
+                (Math.random() * 50) - 25, // Target X acak dekat pusat (0,0)
+                (Math.random() * 50) - 25  // Target Z acak dekat pusat (0,0)
+            ];
+        } else {
+            // TIDAK: Target aman di tengah. "Teleport" (cari target acak baru)
+            this.targetPosition = null; // INI AKAN MENCARI TARGET RANDOM BARU
+        }
     }
-    // --- Update Matriks Lokal di Scene Graph ---
-    
-    // 1. Update Root (posisi global model)
-    this.rootNode.localMatrix.setRotate(this.currentAngleY, 0, 1, 0); // Atur rotasi dulu
-    this.rootNode.localMatrix.translate(this.position[0], modelGroundY, this.position[2]);
+    
+    // --- Update Matriks Lokal di Scene Graph ---
+    
+    // ========================================================
+    // ** PERBAIKAN 2: Bug "Jalan Mundur/Menyamping" (YANG BARU) **
+    // Urutan harus: Pindah (Translate) DULU, baru Putar (Rotate). T * R
+    // ========================================================
+    
+    this.rootNode.localMatrix.setIdentity(); // Reset matriks (M = I)
+    this.rootNode.localMatrix.translate(this.position[0], modelGroundY, this.position[2]); // (M = I * T)
+    this.rootNode.localMatrix.rotate(this.currentAngleY, 0, 1, 0); // (M = (I * T) * R)
+        
 
     // 2. Update Body (ganti buffer-nya dengan yang baru dibuat)
     this.nodes.body.buffers = this.bodyBuffers; // Ganti buffer
