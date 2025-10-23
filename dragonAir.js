@@ -6,11 +6,12 @@ var groundGreen = [0.4, 0.8, 0.4, 1.0];
 var earWhite = [0.9, 0.9, 1.0, 1.0];
 var snoutBlue = [0.6, 0.75, 1.0, 1.0];
 
+//segment ini bodySegmentCount = 20
 function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
     var vertices = [];
     var colors = [];
     var indices = [];
-    var ringSegments = 16;
+    var ringSegments = 16; //mengontrol seberapa benyak lingkaran 2d
     var spineMatrices = [];
     var currentSpineMatrix = new Matrix4();
 
@@ -18,16 +19,16 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
     spineMatrices.push(new Matrix4(currentSpineMatrix));
 
     let headLiftAngle = -15.0; // Sudut angkat kepala
-    let s_curve_amplitude = 12.0;
+    let s_curve_amplitude = 12.0; //lekukan
     let s_curve_freq = 2.5;
     let time = currentAngle * 0.004;
 
-    for (let i = 0; i < segments; i++) {
+    //*looping untuk menghasilkan liukan
+    for (let i = 0; i < segments; i++) { //tiap 1 looping menghasilkan 1 matrix
         let p = i / (segments - 1); // progress (0.0 s.d 1.0)
         let angleX_deg = 0.0;
         let angleY_deg = 0.0;
-
-        // Gerakan S-curve horizontal (rotasi Y)
+    
         angleY_deg = s_curve_amplitude * Math.sin(p * Math.PI * s_curve_freq + time);
         
         
@@ -80,23 +81,26 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
             currentRadius = maxRadius - (maxRadius - endRadius) * ((progress - 0.5) * 2);
         }
 
-        for (let j = 0; j <= ringSegments; j++) {
+        /**  
+         *  ?? yang membentuk 2d
+        */
+        for (let j = 0; j <= ringSegments; j++) { //16 iterasi 
             let angle = (j * 2 * Math.PI) / ringSegments;
 
             // Cincin VERTIKAL (XY plane) - "Tidak Gepenk"
             let x = currentRadius * Math.cos(angle);
             let y = currentRadius * Math.sin(angle); 
             let z = 0; 
-
-            var new_x = e[0] * x + e[4] * y + e[8] * z + e[12];
+ 
+            var new_x = e[0] * x + e[4] * y + e[8] * z + e[12]; //*mengubah dari 2d menjadi 3d
             var new_y = e[1] * x + e[5] * y + e[9] * z + e[13];
             var new_z = e[2] * x + e[6] * y + e[10] * z + e[14];
             vertices.push(new_x, new_y, new_z);
 
-            // Hitung minY *setelah* transformasi
+            // Hitung minY *setelah* transformasi 
             if (new_y < minY) minY = new_y;
 
-            // Warna perut berdasarkan Y lokal
+            // Warna perut berdasarkan Y lokal (gradient putih biru)
             let y_local_normalized = Math.sin(angle);
             let mixFactor = Math.max(0.0, -y_local_normalized); 
             let r = blue[0] * (1.0 - mixFactor) + white[0] * mixFactor;
@@ -105,7 +109,7 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
             colors.push(r, g, b, 1.0);
         }
 
-        // Buat segitiga (indices)
+        //*Buat segitiga (indices) --> mulai dibuat tabung
         if (i > 0) {
             let ring1StartIndex = vertexIndex;
             let ring2StartIndex = vertexIndex - (ringSegments + 1);
@@ -114,11 +118,19 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
                 let v2 = ring2StartIndex + j;
                 let v3 = ring1StartIndex + j + 1;
                 let v4 = ring2StartIndex + j + 1;
-                indices.push(v1, v2, v3);
-                indices.push(v2, v4, v3);
+                indices.push(v1, v2, v3); //segitiga garis 121
+                indices.push(v2, v4, v3); //segitiga garis 212
+
+                /**
+                 * (Cincin 2)  (v2) *----------* (v4)
+                                |            |
+                                |            |
+                (Cincin 1)  (v1) *----------* (v3)
+                 */
             }
         }
         vertexIndex += (ringSegments + 1);
+        // i=0 17 ; i=1 34 (17+17)
     }
 
     var finalMatrix = spineMatrices[spineMatrices.length - 1];
