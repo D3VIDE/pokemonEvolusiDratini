@@ -345,7 +345,7 @@ function Dragonair(gl, programInfo) {
     this.maxRadius = 0.8;
     this.endRadius = 0.1;
 
-    //**untuk animasi
+    //**untuk animasi jalan
     this.position = [0, 0, 0];       // Posisi X, Y (di ground), Z di dunia
     this.targetPosition = null;     // Target [x, z] berikutnya
     this.currentAngleY = 0;         // Sudut hadap saat ini (derajat)
