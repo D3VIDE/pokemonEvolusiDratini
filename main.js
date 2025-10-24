@@ -2,7 +2,6 @@
 // Variabel Warna Global
 // =================================================================
 
-
 var groundGreen = [0.4, 0.8, 0.4, 1.0];
 var earWhite = [0.9, 0.9, 1.0, 1.0];
 var crystalBlue = [0.23, 0.3, 0.79, 1.0];
@@ -134,18 +133,18 @@ function main() {
     cloudRootNode.children.push(cloudClump);
   }
 
-    var mountainGeo = createCone(40, 60, 10, mountainBrown); // Dasar 40, Tinggi 80
-    var mountainBuffers = initBuffers(gl, programInfo, mountainGeo);
-    var mountainRootNode = new SceneNode(null); // Induk untuk semua gunung
+  var mountainGeo = createCone(40, 60, 10, mountainBrown); // Dasar 40, Tinggi 80
+  var mountainBuffers = initBuffers(gl, programInfo, mountainGeo);
+  var mountainRootNode = new SceneNode(null); // Induk untuk semua gunung
 
-    let m1_mat = new Matrix4().translate(-150, 0, -180).scale(1.5, 2.0, 1.5);
-    mountainRootNode.children.push(new SceneNode(mountainBuffers, m1_mat));
+  let m1_mat = new Matrix4().translate(-150, 0, -180).scale(1.5, 2.0, 1.5);
+  mountainRootNode.children.push(new SceneNode(mountainBuffers, m1_mat));
 
-    let m2_mat = new Matrix4().translate(120, 0, -190).scale(1.0, 1.5, 1.0);
-    mountainRootNode.children.push(new SceneNode(mountainBuffers, m2_mat));
+  let m2_mat = new Matrix4().translate(120, 0, -190).scale(1.0, 1.5, 1.0);
+  mountainRootNode.children.push(new SceneNode(mountainBuffers, m2_mat));
 
-    let m3_mat = new Matrix4().translate(20, 0, -200).scale(2.0, 2.5, 2.0);
-    mountainRootNode.children.push(new SceneNode(mountainBuffers, m3_mat));
+  let m3_mat = new Matrix4().translate(20, 0, -200).scale(2.0, 2.5, 2.0);
+  mountainRootNode.children.push(new SceneNode(mountainBuffers, m3_mat));
 
   // Bola merah kecil untuk menandai origin (untuk debug)
   var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]);
@@ -241,31 +240,52 @@ function main() {
     let elapsed = now - g_lastTickTime;
     g_lastTickTime = now;
 
-    // --- Gerakan Kamera WASD ---
+    // --- Gerakan Kamera WASD (DAN NAIK/TURUN) ---
     let radY = (cameraAngleY * Math.PI) / 180.0;
-    let forward = [Math.sin(radY), 0, Math.cos(radY)];
-    let right = [Math.cos(radY), 0, -Math.sin(radY)];
+
+    // Vektor ini [sin(radY), 0, cos(radY)] adalah vektor "Belakang" (menjauh dari target)
+    let backVector = [Math.sin(radY), 0, Math.cos(radY)];
+    let rightVector = [Math.cos(radY), 0, -Math.sin(radY)];
     let moved = false;
+
+    // 'W' (Maju) bergerak MELAWAN vektor "Belakang"
     if (keysPressed["w"]) {
-      cameraTarget[0] += forward[0] * moveSpeed;
-      cameraTarget[2] += forward[2] * moveSpeed;
+      cameraTarget[0] -= backVector[0] * moveSpeed;
+      cameraTarget[2] -= backVector[2] * moveSpeed;
       moved = true;
     }
+    // 'S' (Mundur) bergerak SEARAH vektor "Belakang"
     if (keysPressed["s"]) {
-      cameraTarget[0] -= forward[0] * moveSpeed;
-      cameraTarget[2] -= forward[2] * moveSpeed;
+      cameraTarget[0] += backVector[0] * moveSpeed;
+      cameraTarget[2] += backVector[2] * moveSpeed;
       moved = true;
     }
+    // 'A' (Kiri) bergerak MELAWAN vektor "Kanan"
     if (keysPressed["a"]) {
-      cameraTarget[0] -= right[0] * moveSpeed;
-      cameraTarget[2] -= right[2] * moveSpeed;
+      cameraTarget[0] -= rightVector[0] * moveSpeed;
+      cameraTarget[2] -= rightVector[2] * moveSpeed;
       moved = true;
     }
+    // 'D' (Kanan) bergerak SEARAH vektor "Kanan"
     if (keysPressed["d"]) {
-      cameraTarget[0] += right[0] * moveSpeed;
-      cameraTarget[2] += right[2] * moveSpeed;
+      cameraTarget[0] += rightVector[0] * moveSpeed;
+      cameraTarget[2] += rightVector[2] * moveSpeed;
       moved = true;
     }
+
+    // FITUR BARU: NAIK (Spacebar)
+    if (keysPressed[" "]) {
+      // ' ' adalah ev.key untuk Spacebar
+      cameraTarget[1] += moveSpeed; // Tambahkan ke komponen Y
+      moved = true;
+    }
+
+    // (Bonus) FITUR BARU: TURUN (Shift)
+    if (keysPressed["shift"]) {
+      cameraTarget[1] -= moveSpeed; // Kurangi dari komponen Y
+      moved = true;
+    }
+
     if (moved) {
       updateCamera();
     }
