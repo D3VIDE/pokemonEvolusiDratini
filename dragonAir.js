@@ -9,7 +9,7 @@ var dragonairSnoutBlue = [0.6, 0.75, 1.0, 1.0];
 
 
 //segment ini bodySegmentCount = 20
-function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
+function createDragonairSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
     var vertices = [];
     var colors = [];
     var indices = [];
@@ -496,7 +496,7 @@ Dragonair.prototype.update = function(now, groundY,elapsed) {
     var dt = elapsed / 1000.0; // Waktu delta dalam detik
 
     // --- ANIMASI: Buat ulang tubuh ---
-    this.bodyData = createSmoothBody(
+    this.bodyData = createDragonairSmoothBody(
         this.bodySegmentsCount, this.segmentLength, this.startRadius, 
         this.maxRadius, this.endRadius, now
     );
