@@ -2,10 +2,7 @@
 // Variabel Warna Global
 // =================================================================
 
-var blue = [0.4, 0.6, 1.0, 1.0];
-var snoutBlue = [0.6, 0.75, 1.0, 1.0]; // warna biru untuk moncong
-var white = [1.0, 1.0, 1.0, 1.0];
-var darkPurple = [0.2, 0.0, 0.2, 1.0];
+
 var groundGreen = [0.4, 0.8, 0.4, 1.0];
 var earWhite = [0.9, 0.9, 1.0, 1.0];
 var crystalBlue = [0.23, 0.3, 0.79, 1.0];
@@ -121,7 +118,7 @@ function main() {
   var grassGeo = createRandomGrass(1500, worldBounds, worldBounds, 2.0, grassGreen);
   var grassBuffers = initBuffers(gl, programInfo, grassGeo);
 
-  var cloudGeo = createSphere(1.0, 10, 8, white); // Geometri dasar awan
+  var cloudGeo = createSphere(1.0, 10, 8, [1.0, 1.0, 1.0, 1.0]);
   var cloudBuffers = initBuffers(gl, programInfo, cloudGeo);
   var cloudRootNode = new SceneNode(null); // Induk untuk semua awan
   var numClouds = 15;

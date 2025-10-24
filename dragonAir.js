@@ -1,10 +1,12 @@
     // Warna global khusus Dragonair
-var blue = [0.4, 0.6, 1.0, 1.0];
-var white = [1.0, 1.0, 1.0, 1.0];
-var darkPurple = [0.2, 0.0, 0.2, 1.0];
-var groundGreen = [0.4, 0.8, 0.4, 1.0];
-var earWhite = [0.9, 0.9, 1.0, 1.0];
-var snoutBlue = [0.6, 0.75, 1.0, 1.0];
+var dragonairBlue = [0.4, 0.6, 1.0, 1.0];
+var dragonairWhite = [1.0, 1.0, 1.0, 1.0];
+var dragonairDarkPurple = [0.2, 0.0, 0.2, 1.0];
+var dragonairGroundGreen = [0.4, 0.8, 0.4, 1.0];
+var dragonairEarWhite = [0.9, 0.9, 1.0, 1.0];
+var dragonairSnoutBlue = [0.6, 0.75, 1.0, 1.0];
+
+
 
 //segment ini bodySegmentCount = 20
 function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
@@ -107,9 +109,9 @@ function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRa
             // Warna perut berdasarkan Y lokal (gradient putih biru)
             let y_local_normalized = Math.sin(angle);
             let mixFactor = Math.max(0.0, -y_local_normalized); 
-            let r = blue[0] * (1.0 - mixFactor) + white[0] * mixFactor;
-            let g = blue[1] * (1.0 - mixFactor) + white[1] * mixFactor;
-            let b = blue[2] * (1.0 - mixFactor) + white[2] * mixFactor;
+            let r = dragonairBlue[0] * (1.0 - mixFactor) + dragonairWhite[0] * mixFactor;
+            let g = dragonairBlue[1] * (1.0 - mixFactor) + dragonairWhite[1] * mixFactor;
+            let b = dragonairBlue[2] * (1.0 - mixFactor) + dragonairWhite[2] * mixFactor;
             colors.push(r, g, b, 1.0);
         }
 
@@ -366,16 +368,16 @@ Dragonair.prototype.init = function() {
 
     // 1. Buat Geometri Statis
     // (Geometri tubuh dibuat di 'update')
-    var headGeo = createSphere(1.0, 30, 30, blue);
-    var snoutGeo = createSphere(0.6, 20, 20, snoutBlue);
-    var hornGeo = createCone(0.3, 1.0, 10, white);
-    var earBaseGeo = createSphere(0.25, 10, 10, earWhite);
-    var earWingGeo = createDragonairEarParaboloid(0.8, 0.2, 1.5, 10, 6, earWhite);
+    var headGeo = createSphere(1.0, 30, 30, dragonairBlue);
+    var snoutGeo = createSphere(0.6, 20, 20, dragonairSnoutBlue);
+    var hornGeo = createCone(0.3, 1.0, 10, dragonairWhite);
+    var earBaseGeo = createSphere(0.25, 10, 10, dragonairEarWhite);
+    var earWingGeo = createDragonairEarParaboloid(0.8, 0.2, 1.5, 10, 6, dragonairEarWhite);
     var neckOrbGeo = createSphere(0.3, 12, 12, crystalBlue);
-    var eyeGeo = createSphere(0.15, 10, 10, darkPurple);
-    var tailBall1Geo = createSphere(0.2, 10, 10, blue);
-    var tailBall2Geo = createSphere(0.15, 10, 10, blue); 
-    var tailBall3Geo = createSphere(0.1, 10, 10, blue);
+    var eyeGeo = createSphere(0.15, 10, 10, dragonairDarkPurple);
+    var tailBall1Geo = createSphere(0.2, 10, 10, dragonairBlue);
+    var tailBall2Geo = createSphere(0.15, 10, 10, dragonairBlue); 
+    var tailBall3Geo = createSphere(0.1, 10, 10, dragonairBlue);
 
     // 2. Inisialisasi Buffer Statis
     var headBuffers = initBuffers(gl, programInfo, headGeo);

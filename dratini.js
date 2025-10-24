@@ -136,7 +136,7 @@ function createEllipticParaboloid(a, b, c, segments, rings, color) {
 // FUNGSI GEOMETRI BADAN (dari dragonAir.js)
 // =================================================================
 
-function createSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
+function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
     var vertices = [];
     var colors = [];
     var indices = [];
@@ -376,7 +376,7 @@ DratiniModel.prototype.update = function(elapsed, worldBounds) {
     // --- 2. ANIMASI: Buat ulang tubuh menggunakan fungsi dari dragonAir.js ---
     this.waveAnimPhase = (this.waveAnimPhase + dt * 100) % 360;
     
-    this.bodyData = createSmoothBody(
+    this.bodyData = createDratiniSmoothBody(
         this.bodySegmentsCount, this.segmentLength, this.startRadius, 
         this.maxRadius, this.endRadius, this.waveAnimPhase
     );
@@ -570,4 +570,4 @@ function main() {
 
 // Catatan: Hapus tanda // di depan 'main()' untuk menjalankan, setelah memastikan
 // semua dependensi WebGL (cuon-matrix.js, gl, programInfo, drawSceneGraph) dimuat.
-main();
+//main();
