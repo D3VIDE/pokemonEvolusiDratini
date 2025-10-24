@@ -237,14 +237,14 @@ Dragonite.prototype.init = function () {
   var tailSegModel = createEllipsoid(0.35, this.tailSegmentLength, 0.35, 10, COLOR_BODY);
   var tailTipModel = createSphere(this.finalTailRadius * 1.2, 8, 8, COLOR_BODY);
 
-  // 2. Buat Geometri Api (Tidak ada perubahan)
+  // 2. Buat Geometri Api
   var fireConeCoreModel = createCone(0.15, 0.5, 16, COLOR_FIRE_CORE);
   var fireConeMidModel = createCone(0.25, 0.7, 16, COLOR_FIRE_MID);
   var fireConeOuterModel = createCone(0.35, 0.9, 16, COLOR_FIRE_OUTER);
   var fireBallModel = createSphere(0.1, 8, 8, COLOR_FIRE_OUTER);
   var smokeBallModel = createSphere(0.2, 8, 8, COLOR_FIRE_SMOKE);
 
-  // 3. Inisialisasi Buffer Statis Dragonite (Tidak ada perubahan)
+  // 3. Inisialisasi Buffer Statis Dragonite
   var bodyBuffers = initBuffers(gl, programInfo, bodyModel);
   var bellyBuffers = initBuffers(gl, programInfo, bellyModel);
   var shoulderBuffers = initBuffers(gl, programInfo, shoulderModel);
@@ -266,14 +266,14 @@ Dragonite.prototype.init = function () {
   var tailSegBuffers = initBuffers(gl, programInfo, tailSegModel);
   var tailTipBuffers = initBuffers(gl, programInfo, tailTipModel);
 
-  // 4. Inisialisasi Buffer Statis Api (Tidak ada perubahan)
+  // 4. Inisialisasi Buffer Statis Api
   var fireConeCoreBuffers = initBuffers(gl, programInfo, fireConeCoreModel);
   var fireConeMidBuffers = initBuffers(gl, programInfo, fireConeMidModel);
   var fireConeOuterBuffers = initBuffers(gl, programInfo, fireConeOuterModel);
   var fireBallBuffers = initBuffers(gl, programInfo, fireBallModel);
   var smokeBallBuffers = initBuffers(gl, programInfo, smokeBallModel);
 
-  // 5. Bangun Scene Graph (Hierarkis) (Tidak ada perubahan)
+  // 5. Bangun Scene Graph (Hierarkis)
   this.rootNode = new SceneNode(null);
   var n = this.nodes;
   n.body = new SceneNode(bodyBuffers);
@@ -437,9 +437,7 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
         this.currentAngleY += Math.sign(angleDiff) * turnStep;
       }
 
-      // Transisi: HANYA jika sudah selesai berputar
-      if (Math.abs(angleDiff) < 1.0 && this.stateTimer > 0.5) {
-        // Beri min 0.5 detik
+      if (this.stateTimer > this.rotateDuration) {
         this.currentState = "FIRING";
         this.stateTimer = 0;
         this.isBreathingFire = true;
@@ -597,7 +595,7 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
     let fireOffsetZ = 0.3 + animProgress * 1.5;
     let fireOffsetY = -0.1 + Math.sin(animProgress * Math.PI * 2) * 0.1;
 
-    n.fire.localMatrix.setIdentity().translate(0, fireOffsetY, fireOffsetZ).rotate(90, 1, 0, 0).scale(fireScaleFactor, fireScaleFactor, fireScaleFactor);
+    n.fire.localMatrix.setIdentity().translate(0, fireOffsetY, fireOffsetZ).rotate(-90, 1, 0, 0).scale(fireScaleFactor, fireScaleFactor, fireScaleFactor);
 
     n.fireBall1.localMatrix
       .setIdentity()
