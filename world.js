@@ -24,7 +24,8 @@ var WATER_SURFACE_Y = -0.5; // Y referensi untuk permukaan air (di bawah daratan
 
 var TREE_TRUNK_HEIGHT = 8.0; 
 var LAKE_RADIUS = 30.0; // Diperbesar 50% dari 20.0
-
+var LAKE_ASPECT_RATIO = 1.3; // BARU: Untuk membuat danau lonjong (oval)
+var ROCK_IN_LAKE_COUNT = 6;  // BARU: Jumlah batu di dalam danau
 // =================================================================
 // FUNGSI GEOMETRI DASAR (DIPERLUKAN)
 // =================================================================
@@ -153,7 +154,7 @@ WorldEnvironment.prototype.init = function() {
     this.buffers.treeTrunk = initBuffers(gl, info, treeTrunkGeo);
     
     // Daun pohon (Sphere)
-    var treeLeavesGeo = createSphere(8.0, 10, 10, TREE_LEAVES); 
+    var treeLeavesGeo = createSphere(5, 10, 10, TREE_LEAVES); 
     this.buffers.treeLeaves = initBuffers(gl, info, treeLeavesGeo);
 
     // --- 2. BANGUN SCENE GRAPH (Objek Statis) ---
@@ -175,6 +176,18 @@ WorldEnvironment.prototype.init = function() {
     // Y: WATER_SURFACE_Y. TIDAK ADA X/Z TRANSLASI (Danau di tengah 0,0)
     this.nodes.lakeSurface.localMatrix.setIdentity().translate(0, WATER_SURFACE_Y, 0).scale(1, 0.05, 1);
     this.nodes.ground.children.push(this.nodes.lakeSurface);
+    
+    this.nodes.rocks = new SceneNode(null); // Node ini sekarang memiliki .children
+    this.nodes.ground.children.push(this.nodes.rocks);
+
+for (let i = 0; i < ROCK_IN_LAKE_COUNT; i++) {
+    let angle = Math.random() * 2 * Math.PI;
+    let radius = Math.random() * (LAKE_RADIUS * 0.7); 
+    let x = radius * Math.cos(angle) * LAKE_ASPECT_RATIO;
+    let z = radius * Math.sin(angle);
+    
+    this._addRock(x, WATER_SURFACE_Y - 0.5, z, 1.0 + Math.random() * 0.5); 
+}
 
     // Node Container Gunung Low-Poly (Y = GROUND_Y_LEVEL = 0.0)
     this.nodes.mountains = new SceneNode(null);
@@ -252,7 +265,7 @@ WorldEnvironment.prototype._addTree = function(x, y, z, scaleFactor, heightFacto
     
     // Y Daun: Di atas batang, sedikit tumpang tindih.
     var leaves = new SceneNode(this.buffers.treeLeaves);
-    leaves.localMatrix.setIdentity().translate(0, 13, 0).scale(1.0, 0.8, 1.0); 
+    leaves.localMatrix.setIdentity().translate(0, 13, 0).scale(1.5, 1.3, 1.6); 
     treeRoot.children.push(leaves);
 
     this.nodes.trees.children.push(treeRoot);
@@ -283,11 +296,11 @@ WorldEnvironment.prototype.update = function(now, elapsed) {
     // Animasi permukaan air
     var waveScale = 1 + Math.sin(now * 0.001) * 0.005;
     var waveYOffset = Math.cos(now * 0.001) * 0.05;
-
+    var waveZOffset = Math.cos(now * 0.003) * 0.05;
     // Gunakan WATER_SURFACE_Y yang konsisten
     if (this.nodes.lakeSurface) {
         this.nodes.lakeSurface.localMatrix.setIdentity()
-            .translate(0, WATER_SURFACE_Y + waveYOffset, 0)
+            .translate(0, WATER_SURFACE_Y + waveYOffset, waveZOffset)
             .scale(1, 0.05 * waveScale, 1);
     }
 };
