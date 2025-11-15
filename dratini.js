@@ -428,10 +428,11 @@ DratiniModel.prototype.init = function() {
     // ************************************************************
 };
 
-DratiniModel.prototype.update = function(elapsed, worldBounds) {
+DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
     var gl = this.gl;
     var programInfo = this.programInfo;
     var dt = elapsed / 1000.0;
+    var groundY = waterLevelY || 0;
     
     // --- 1. Update Posisi dan Rotasi untuk Gerakan Angka 8 (Lemniscate) ---
     this.currentAngle += this.angularSpeed * elapsed;
