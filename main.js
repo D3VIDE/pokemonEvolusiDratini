@@ -1,5 +1,5 @@
 // =================================================================
-// main.js (FIXED: Random Walk State + Free Camera Control)
+// main.js (FIXED: Trigger '2' Key + No UI)
 // =================================================================
 
 // Variabel Warna Global (TETAP SAMA)
@@ -75,9 +75,8 @@ function main() {
     myDragonair.init();
     myDragonair.position = [10, 0, 0];
     
-    // [PERBAIKAN 1] State awal diubah ke DYNAMIC_IDLE (untuk jalan acak)
-    // Asumsi Anda menggunakan dragonAir.js dari respons saya sebelumnya
-    myDragonair.animationState = "DYNAMIC_IDLE"; // (Semula: DYNAMIC_STATIC)
+    // Set state awal ke jalan acak (DYNAMIC_IDLE)
+    myDragonair.animationState = "DYNAMIC_IDLE"; 
     
     var myDratini = new DratiniModel(gl, programInfo);
     myDratini.init();
@@ -94,7 +93,7 @@ function main() {
     window.myDragonair = myDragonair; 
 
     var oriPointGeo = createSphere(0.1, 8, 8, [1.0, 0.0, 0.0, 1.0]);
-    var oriPointBuffers = initBuffers(gl, programInfo, oriPointGeo);
+    var oriPointBuffers = initBuffers(gl, programInfo, oriPointBuffers);
 
     var projMatrix = new Matrix4();
     var viewMatrix = new Matrix4();
@@ -114,22 +113,13 @@ function main() {
     const DragonairFocusDistance = 15.0; 
     const DragonairFocusAngleX = 10.0;
     
-    const inputElement = document.getElementById("input-text");
-    const statusElement = document.getElementById("status");
-    inputElement.focus();
+    // [PERBAIKAN] Hapus referensi ke inputElement dan statusElement
+    // const inputElement = document.getElementById("input-text");
+    // const statusElement = document.getElementById("status");
+    // inputElement.focus();
     
-    inputElement.addEventListener('change', function() {
-        let value = this.value.trim();
-        if (value === "2") {
-            currentScenario = "DRAGONAIR_ANIMATION";
-            isTransitioningCamera = true;
-            statusElement.innerHTML = "STATUS: SCENARIO AKTIF (DRAGONAIR)";
-            document.getElementById("input-overlay").style.display = 'none'; 
-        } else {
-            statusElement.innerHTML = "STATUS: INPUT SALAH. Coba lagi (2).";
-            this.value = '';
-        }
-    });
+    // [PERBAIKAN] Hapus event listener untuk inputElement
+    // inputElement.addEventListener('change', function() { ... });
 
     let isDragging = false;
     let lastMouseX = -1, lastMouseY = -1;
@@ -147,7 +137,7 @@ function main() {
     }
     updateCamera(); 
     
-    // [PERBAIKAN 2] Menghapus 'if (currentScenario === "STATIC_IDLE")'
+    // Kamera bebas (sudah diperbaiki di langkah sebelumnya)
     canvas.onmousedown = function (ev) {
         let x = ev.clientX, y = ev.clientY;
         let rect = ev.target.getBoundingClientRect();
@@ -159,9 +149,8 @@ function main() {
     canvas.onmouseup = function (ev) { isDragging = false; };
     canvas.onmouseleave = function (ev) { isDragging = false; };
     
-    // [PERBAIKAN 2] Menghapus '|| currentScenario !== "STATIC_IDLE"'
     canvas.onmousemove = function (ev) {
-        if (!isDragging) return; // <-- Hanya cek ini
+        if (!isDragging) return;
         let x = ev.clientX, y = ev.clientY;
         let deltaX = x - lastMouseX;
         let deltaY = y - lastMouseY;
@@ -172,7 +161,6 @@ function main() {
         updateCamera();
     };
 
-    // [PERBAIKAN 2] Menghapus 'if (currentScenario !== "STATIC_IDLE")'
     canvas.onwheel = function (ev) {
         ev.preventDefault();
         let zoomSensitivity = 0.05;
@@ -181,7 +169,25 @@ function main() {
         updateCamera();
     };
 
-    document.onkeydown = function (ev) { keysPressed[ev.key.toLowerCase()] = true; };
+    // [PERBAIKAN] Modifikasi onkeydown untuk menangani tombol '2'
+    document.onkeydown = function (ev) { 
+        let key = ev.key.toLowerCase();
+        keysPressed[key] = true; // Tetap simpan state (untuk WASD)
+        
+        // Pemicu Skenario 2
+        if (key === '2') {
+            // Cek agar tidak memicu berulang kali
+            if (currentScenario !== "DRAGONAIR_ANIMATION") {
+                currentScenario = "DRAGONAIR_ANIMATION";
+                isTransitioningCamera = true;
+                
+                // (referensi UI sudah dihapus)
+                // statusElement.innerHTML = "STATUS: SCENARIO AKTIF (DRAGONAIR)";
+                // document.getElementById("input-overlay").style.display = 'none'; 
+            }
+        }
+    };
+    
     document.onkeyup = function (ev) { keysPressed[ev.key.toLowerCase()] = false; };
 
     window.onresize = function() {
@@ -203,7 +209,7 @@ function main() {
         g_lastTickTime = now;
         let dt = elapsed / 1000.0;
         
-        // [PERBAIKAN 2] Logika WASD dipindah ke luar FSM agar selalu aktif
+        // Logika WASD (sudah bebas)
         let radY = (cameraAngleY * Math.PI) / 180.0;
         let backVector = [Math.sin(radY), 0, Math.cos(radY)];
         let rightVector = [Math.cos(radY), 0, -Math.sin(radY)];
@@ -217,22 +223,20 @@ function main() {
         if (keysPressed[" "]) { cameraTarget[1] += actualMoveSpeed; moved = true; }
         if (keysPressed["shift"]) { cameraTarget[1] -= actualMoveSpeed; moved = true; }
         
-        if (moved) updateCamera(); // Update jika WASD/shift/space ditekan
+        if (moved) updateCamera(); 
         
         
         // --- LOGIKA FSM GLOBAL ---
         
         if (currentScenario === "STATIC_IDLE") {
-            // [PERBAIKAN 2] Logika 'else' (auto-rotate) dihapus.
-            // Kamera sekarang sepenuhnya dikontrol oleh user (WASD di atas, mouse di listener)
-            // Dragonair akan tetap jalan acak karena state-nya DYNAMIC_IDLE.
+            // Dragonair jalan acak (state DYNAMIC_IDLE)
+            // Kamera dikontrol penuh oleh user.
             
         } else if (currentScenario === "DRAGONAIR_ANIMATION") {
             
             const targetPos = myDragonair.position;
             const targetY = targetPos[1] + DragonairFocusY;
             
-            // Transisi kamera (hanya berjalan sekali saat 'isTransitioningCamera' true)
             if (isTransitioningCamera) {
                 let lerpFactor = dt * 3.0;
                 cameraTarget[0] += (targetPos[0] - cameraTarget[0]) * lerpFactor;
@@ -263,14 +267,13 @@ function main() {
                     myDragonair.targetFruitPosition = [targetX, targetZ];
                     myWorld.dropFruit(targetX, targetZ, randomTree); 
                     
-                    myDragonair.animationState = "START_WALK"; // Memulai FSM makan buah
+                    myDragonair.animationState = "START_WALK"; 
                 }
-                updateCamera(); // Update kamera selama transisi
+                updateCamera(); 
             
-            // [PERBAIKAN 2] Blok 'else' (auto-follow/auto-rotate) DIHAPUS.
-            // } else { ... }
+            // Kamera sudah bebas, tidak perlu blok 'else'
                 
-            } // Akhir dari if (isTransitioningCamera)
+            } 
 
             // Cek jika Dragonair sudah selesai makan dan siap untuk putaran baru
             if (myDragonair.animationState === "IDLE_STATIC" && !isTransitioningCamera) {
