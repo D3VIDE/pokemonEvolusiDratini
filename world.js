@@ -1,6 +1,5 @@
 // =================================================================
-// world.js (FINAL VERSION - Fixes: Fruit Visibility, Collision Logic)
-// **MODIFIED: Taller/Wider Trees**
+// world.js (FIXED: Mencatat Obstacles, Menghapus Global Function)
 // =================================================================
 
 // --- WARNA WORLD (Sesuai Tema Crystal Clear) ---
@@ -19,14 +18,14 @@ var FRUIT_COLOR = [0.9, 0.5, 0.1, 1.0];
 
 // --- KONSTANTA FISIK & UKURAN ---
 var WORLD_BOUNDS = 400.0; 
+var WORLD_Y_OFFSET = -3.5; 
+var GROUND_Y_LEVEL = 0.0; 
+var WATER_SURFACE_Y = -0.5; 
 
-// KONSTANTA KETINGGIAN KONSISTEN
-var WORLD_Y_OFFSET = -3.5; // Offset Y global untuk visualisasi kamera
-var GROUND_Y_LEVEL = 0.0; // Y referensi untuk dasar daratan
-var WATER_SURFACE_Y = -0.5; // Y referensi untuk permukaan air (di bawah daratan)
-
-// **[PERBAIKAN] Batang lebih tinggi
-var TREE_TRUNK_HEIGHT = 24.0; // (Semula: 8.0)
+// Menggunakan tinggi/lebar pohon dari update sebelumnya
+var TREE_TRUNK_HEIGHT = 20.0; 
+var TREE_LEAVES_RADIUS = 6.0;
+var TREE_TRUNK_RADIUS = 1.2;
 
 var LAKE_RADIUS = 30.0; 
 var LAKE_ASPECT_RATIO = 1.3; 
@@ -114,7 +113,6 @@ function createLowPolyMountain(baseRadius, height, numSegments, numLayers, snowH
 
 /** Membuat geometri bola untuk buah. */
 function createFruit(radius, segments, rings, color) {
-    // Asumsikan createSphere tersedia secara global (dari libs.js / di tempat lain)
     return createSphere(radius, segments, rings, color); 
 }
 
@@ -131,24 +129,17 @@ function TreeNode(trunkBuffers, leavesBuffers, x, y, z, scaleFactor, heightFacto
 
 TreeNode.prototype.init = function(yBase) {
     this.root.localMatrix.setIdentity().translate(this.position[0], yBase, this.position[2]).scale(this.scale[0], this.scale[1], this.scale[2]);
-    
-    // **[PERBAIKAN] Y Batang: Diangkat setengah tinggi baru (12.0 / 2 = 6.0)
-    this.trunk.localMatrix.setIdentity().translate(0, 6, 0); // (Semula: 4)
-    
-    // **[PERBAIKAN] Y Daun: Disesuaikan dengan tinggi batang baru (Top Batang 12.0 + offset 5.0 = 17.0)
-    this.leaves.localMatrix.setIdentity().translate(0, 17, 0).scale(1.5, 1.3, 1.6); // (Semula: 13)
+    this.trunk.localMatrix.setIdentity().translate(0, TREE_TRUNK_HEIGHT / 2, 0); 
+    this.leaves.localMatrix.setIdentity().translate(0, TREE_TRUNK_HEIGHT + 5.0, 0).scale(1.5, 1.3, 1.6); 
     this.root.children.push(this.trunk, this.leaves);
 
-    // Tentukan 5 posisi potensial buah (relatif terhadap leaves)
-    // Logika spawn point buah tidak perlu diubah, karena masih relatif terhadap daun
     for(let i = 0; i < 5; i++) {
         let angle = Math.random() * 2 * Math.PI;
         let r = Math.random() * 3.5;
         this.fruitSpawnPoints.push({
             x: r * Math.cos(angle),
-            y: 0.5 + Math.random() * 2.0, // Y relatif di dalam daun
+            y: 0.5 + Math.random() * 2.0, 
             z: r * Math.sin(angle),
-            // y_world_relative (dihapus karena tidak terpakai di world.js)
         });
     }
 }
@@ -168,6 +159,9 @@ function WorldEnvironment(gl, programInfo) {
     this.allTrees = [];
     this.mainTree = null;
     this.fruitState = { active: false, fallTime: 0, totalDuration: 1.0 }; 
+
+    // [PERBAIKAN] Daftar untuk menyimpan semua rintangan (pohon, gunung)
+    this.obstacles = [];
 }
 
 /** Inisialisasi geometri dan scene graph World. */
@@ -182,33 +176,32 @@ WorldEnvironment.prototype.init = function() {
     this.buffers.lakeBed = initBuffers(gl, info, lakeBedGeo);
     var groundGeo = createPlane(WORLD_BOUNDS, WORLD_BOUNDS, GRASS_GREEN);
     this.buffers.ground = initBuffers(gl, info, groundGeo);
-    var mountainGeo1 = createLowPolyMountain(30, 40, 8, 3, 0.6); 
+    
+    var mountain1BaseRadius = 30;
+    var mountain2BaseRadius = 25;
+    var mountainGeo1 = createLowPolyMountain(mountain1BaseRadius, 40, 8, 3, 0.6); 
     this.buffers.mountain1 = initBuffers(gl, info, mountainGeo1);
-    var mountainGeo2 = createLowPolyMountain(25, 35, 7, 3, 0.5); 
+    var mountainGeo2 = createLowPolyMountain(mountain2BaseRadius, 35, 7, 3, 0.5); 
     this.buffers.mountain2 = initBuffers(gl, info, mountainGeo2);
+    
     var rockGeo = createSphere(1.0, 6, 6, ROCK_COLOR);
     this.buffers.rock = initBuffers(gl, info, rockGeo);
     
-    // **[PERBAIKAN] Batang lebih lebar (radius 1.2) dan tinggi (menggunakan konstanta baru)
-    var treeTrunkGeo = createCylinder(1.2, TREE_TRUNK_HEIGHT, 12, TREE_TRUNK); // (Semula: 0.8)
+    var treeTrunkGeo = createCylinder(TREE_TRUNK_RADIUS, TREE_TRUNK_HEIGHT, 8, TREE_TRUNK); 
     this.buffers.treeTrunk = initBuffers(gl, info, treeTrunkGeo);
-    
-    // **[PERBAIKAN] Daun sedikit lebih besar (radius 6) agar proporsional
-    var treeLeavesGeo = createSphere(6, 10, 10, TREE_LEAVES); // (Semula: 5)
+    var treeLeavesGeo = createSphere(TREE_LEAVES_RADIUS, 10, 10, TREE_LEAVES); 
     this.buffers.treeLeaves = initBuffers(gl, info, treeLeavesGeo);
     
-    // **BUFFER BUAH BARU**
     var fruitGeo = createFruit(0.3, 10, 10, FRUIT_COLOR);
     this.buffers.fruit = initBuffers(gl, info, fruitGeo);
 
     // --- 2. BANGUN SCENE GRAPH ---
-
     this.rootNode.localMatrix.setIdentity();
     this.nodes.ground = new SceneNode(this.buffers.ground);
     this.nodes.ground.localMatrix.setIdentity().translate(0, WORLD_Y_OFFSET, 0); 
     this.rootNode.children.push(this.nodes.ground);
 
-    // Node Danau & Batu 
+    // Node Danau & Batu (Tidak ditambahkan ke this.obstacles)
     this.nodes.lakeBed = new SceneNode(this.buffers.lakeBed);
     this.nodes.lakeBed.localMatrix.setIdentity().translate(0, WATER_SURFACE_Y - 1.0, 0).scale(1, 0.15, 1);
     this.nodes.ground.children.push(this.nodes.lakeBed);
@@ -225,25 +218,33 @@ WorldEnvironment.prototype.init = function() {
         this._addRock(x, WATER_SURFACE_Y - 0.5, z, 1.0 + Math.random() * 0.5); 
     }
 
-    // Node Gunung (Sama)
+    // Node Gunung
     this.nodes.mountains = new SceneNode(null);
     this.nodes.ground.children.push(this.nodes.mountains);
     const mountainScale = 1.35; 
+    
+    // [PERBAIKAN] Tambahkan gunung ke daftar rintangan
     this._addMountain(this.buffers.mountain1, -50, GROUND_Y_LEVEL, -70, mountainScale); 
+    this.obstacles.push({ x: -50, z: -70, radius: mountain1BaseRadius * mountainScale }); 
+    
     this._addMountain(this.buffers.mountain2, 30, GROUND_Y_LEVEL, -85, mountainScale); 
+    this.obstacles.push({ x: 30, z: -85, radius: mountain2BaseRadius * mountainScale });
 
-    // Node Container Pohon BARU
+    // Node Container Pohon
     this.nodes.trees = new SceneNode(null);
     this.nodes.ground.children.push(this.nodes.trees);
-    const treeYBase = GROUND_Y_LEVEL+5; 
+    const treeYBase = GROUND_Y_LEVEL; 
     
-    // POHON UTAMA (Dragonair akan berinteraksi di dekat pohon ini)
+    // POHON UTAMA
     let tree0 = new TreeNode(this.buffers.treeTrunk, this.buffers.treeLeaves, -20, treeYBase, 25, 1.5, 1.2);
     this.nodes.trees.children.push(tree0.root);
     this.allTrees.push(tree0);
-    this.mainTree = tree0; // SET POHON UTAMA
+    this.mainTree = tree0; 
+    
+    // [PERBAIKAN] Tambahkan pohon utama ke daftar rintangan
+    this.obstacles.push({ x: -20, z: 25, radius: TREE_LEAVES_RADIUS * 1.5 });
 
-    // POHON LAIN (menggunakan _addTreeCustom yang baru)
+    // POHON LAIN (otomatis ditambahkan ke rintangan via _addTreeCustom)
     this.allTrees.push(this._addTreeCustom(60, treeYBase, 50, 1.2, 1.0));
     this.allTrees.push(this._addTreeCustom(-45, treeYBase, 40, 0.9, 0.9));
     this.allTrees.push(this._addTreeCustom(75, treeYBase, -20, 1.1, 1.1));
@@ -257,15 +258,16 @@ WorldEnvironment.prototype.init = function() {
     this.allTrees.push(this._addTreeCustom(130, treeYBase, 10, 0.7, 0.8));
     this.allTrees.push(this._addTreeCustom(-130, treeYBase, 50, 0.7, 0.9));
     this.allTrees.push(this._addTreeCustom(10, treeYBase, 100, 0.8, 0.8));
-    this.allTrees.push(this._addTreeCustom(-70, treeYBase, -60, 1.0, 1.0));
-    this.allTrees.push(this._addTreeCustom(50, treeYBase, -90, 1.1, 1.0));
+    this.allTrees.push(this._addTreeCustom(-35, treeYBase, 100, 0.8, 0.8));
+    this.allTrees.push(this._addTreeCustom(-70, treeYBase, 100, 0.8, 0.8));
+    
 
     // **NODE BUAH JATUH BARU**
     this.nodes.fallingFruit = new SceneNode(this.buffers.fruit);
     this.nodes.fallingFruit.enabled = false; 
     this.nodes.ground.children.push(this.nodes.fallingFruit);
     
-    // Node Batu Daratan (Sama)
+    // Node Batu Daratan (Tidak ditambahkan ke this.obstacles)
     this._addRock(25, GROUND_Y_LEVEL, 5, 1.5);    
     this._addRock(-50, GROUND_Y_LEVEL, 20, 1.0);
     this._addRock(15, GROUND_Y_LEVEL, -30, 1.2);
@@ -287,6 +289,10 @@ WorldEnvironment.prototype.init = function() {
 WorldEnvironment.prototype._addTreeCustom = function(x, y, z, scaleFactor, heightFactor) {
     let treeNode = new TreeNode(this.buffers.treeTrunk, this.buffers.treeLeaves, x, y, z, scaleFactor, heightFactor);
     this.nodes.trees.children.push(treeNode.root);
+    
+    // [PERBAIKAN] Tambahkan pohon baru ke daftar rintangan
+    this.obstacles.push({ x: x, z: z, radius: TREE_LEAVES_RADIUS * scaleFactor });
+    
     return treeNode;
 };
 
@@ -308,26 +314,14 @@ WorldEnvironment.prototype._addRock = function(x, y, z, scaleFactor) {
     this.nodes.rocks.children.push(rockNode);
 };
 
-/** Memicu buah untuk jatuh dari pohon terpilih ke target X/Z. (Logika ini sudah benar dari fix sebelumnya) */
+/** Memicu buah untuk jatuh... (TIDAK BERUBAH) */
 WorldEnvironment.prototype.dropFruit = function(targetX, targetZ, sourceTree) {
     let treeToUse = sourceTree || this.mainTree; 
-    
     if (!treeToUse) { console.error("Tidak ada pohon untuk menjatuhkan buah!"); return; }
-
-    // 1. Pilih posisi Buah (di daun Pohon TERPILIH)
     let spawnPoint = treeToUse.fruitSpawnPoints[Math.floor(Math.random() * treeToUse.fruitSpawnPoints.length)];
-    
-    // 2. Hitung posisi awal buah (x, y, z relatif ke world-root dari pohon TERPILIH)
-    
-    // **[PERBAIKAN] Logika Y Awal Buah disesuaikan dengan tinggi daun baru**
-    // Y daun (17) * Y scale daun (1.3) * Y scale root (scale[1]) + Y relatif (spawnPoint.y)
-    // Untuk amannya, kita set saja Y statis yang tinggi agar terlihat jatuh
-    
     let fruitX = treeToUse.position[0] + spawnPoint.x * treeToUse.scale[0] * 1.5;
-    // Y awal buah dibuat konsisten tinggi di 15 unit di atas world offset
-    let fruitY = WORLD_Y_OFFSET + 15.0; // (Semula: + 10)
+    let fruitY = WORLD_Y_OFFSET + 15.0; 
     let fruitZ = treeToUse.position[2] + spawnPoint.z * treeToUse.scale[0] * 1.6;
-
     this.fruitState = {
         active: true,
         startX: fruitX,
@@ -340,49 +334,36 @@ WorldEnvironment.prototype.dropFruit = function(targetX, targetZ, sourceTree) {
         totalDuration: 1.5, 
         groundY: 0 + 0.1 
     };
-
     this.nodes.fallingFruit.enabled = true;
 };
 
-/** Update logika buah jatuh per frame. */
+/** Update logika buah jatuh... (TIDAK BERUBAH) */
 WorldEnvironment.prototype.updateFruitFall = function(dt) {
     if (!this.fruitState || !this.fruitState.active) return;
-
     this.fruitState.fallTime += dt;
     let t = this.fruitState.fallTime / this.fruitState.totalDuration;
-    t = Math.min(1.0, t); // Clamp ke 1.0
-
-    // Interpolasi posisi X dan Z
+    t = Math.min(1.0, t); 
     let currentX = this.fruitState.startX + (this.fruitState.targetX - this.fruitState.startX) * t;
     let currentZ = this.fruitState.startZ + (this.fruitState.targetZ - this.fruitState.startZ) * t;
-    
-    // Interpolasi posisi Y (Melambat di akhir)
     let yDelta = this.fruitState.startY - this.fruitState.groundY;
-    // Menggunakan kurva sederhana (1-t)^2 untuk melambat di akhir
     let currentY = this.fruitState.groundY + yDelta * (1 - t) * (1 - t);
-
     if (t >= 1.0) {
         this.fruitState.active = false;
-        // JANGAN SEMBUNYIKAN SEGERA. Biarkan Dragonair yang melakukannya di state EATING.
     } 
-
-    // **MODIFIKASI: Skala buah yang lebih besar dan terlihat**
     let scale = 1.0 + 0.5 * Math.sin(t * Math.PI); 
     this.nodes.fallingFruit.localMatrix.setIdentity()
         .translate(currentX, currentY, currentZ)
-        .scale(scale * 2.0, scale * 2.0, scale * 2.0); // Skala 2.0x agar jelas terlihat
+        .scale(scale * 2.0, scale * 2.0, scale * 2.0); 
 };
 
-/** Getter sederhana untuk mendapatkan node akar World. */
+/** Getter sederhana... (TIDAK BERUBAH) */
 WorldEnvironment.prototype.getRootNode = function() {
     return this.rootNode;
 };
 
-/** Update World (untuk animasi air/awan dan buah jatuh) */
+/** Update World... (TIDAK BERUBAH) */
 WorldEnvironment.prototype.update = function(now, elapsed) {
     var dt = elapsed / 1000.0;
-    
-    // Animasi permukaan air
     var waveScale = 1 + Math.sin(now * 0.001) * 0.005;
     var waveYOffset = Math.cos(now * 0.001) * 0.05;
     var waveZOffset = Math.cos(now * 0.003) * 0.05;
@@ -391,30 +372,24 @@ WorldEnvironment.prototype.update = function(now, elapsed) {
             .translate(0, WATER_SURFACE_Y + waveYOffset, waveZOffset)
             .scale(1, 0.05 * waveScale, 1);
     }
-    
-    // **UPDATE BUAH JATUH**
     this.updateFruitFall(dt); 
 };
 
 // =================================================================
-// HELPER GLOBAL - Untuk Collision Sederhana (Blocking Lake)
+// [PERBAIKAN] FUNGSI GLOBAL isPositionBlocked DIHAPUS
 // =================================================================
-// Note: Ini harusnya di file libs.js atau di scope global main.js
-// Digunakan untuk memblokir Dragonair memasuki danau.
-
-function isPositionBlocked(x, z) {
-    // Danau berada di sekitar [0, 0] dengan radius 30 (LAKE_RADIUS)
-    const LAKE_RADIUS_SQUARED = 30 * 30; 
+// function isPositionBlocked(x, z, modelRadius = 1.0) { ... }
+// (Pastikan fungsi ini dihapus atau dikosongkan)
+function isPositionBlocked(x, z, modelRadius = 1.0) {
+    // KOSONG. Logika pindah ke dragonAir.js
     
-    // Cek Danau (area tengah)
-    if ((x * x + z * z) < LAKE_RADIUS_SQUARED) {
-        return true; // Blok area danau
-    }
+    // Kita masih bisa cek danau di sini jika mau, 
+    // tapi permintaan Anda adalah menghapusnya.
     
-    // Tambahkan cek batas peta jika perlu
-    if (x < -200 || x > 200 || z < -200 || z > 200) {
-        return true; 
-    }
-
+    // const LAKE_RADIUS_SQUARED = 30 * 30; 
+    // if ((x * x + z * z) < LAKE_RADIUS_SQUARED) {
+    //     return true; 
+    // }
+    
     return false;
 }
