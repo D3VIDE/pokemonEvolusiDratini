@@ -1,5 +1,5 @@
 // =================================================================
-// dragonAir.js (FIXED: Stop Early + No Bending Down)
+// dragonAir.js (FIXED: Internal Timer for Waiting -> Shock)
 // =================================================================
 
 var dragonairBlue = [0.4, 0.6, 1.0, 1.0];
@@ -11,9 +11,6 @@ var crystalBlue = [0.23, 0.3, 0.79, 1.0];
 var LOVE_COLOR = [1.0, 0.5, 0.7, 1.0]; 
 var CRUMB_COLOR = [0.9, 0.5, 0.1, 1.0];
 
-// =================================================================
-// GEOMETRI DASAR (TIDAK BERUBAH)
-// =================================================================
 function createDragonairSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
     var vertices = [];
     var colors = [];
@@ -202,56 +199,39 @@ function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegm
     };
 }
 
-// =================================================================
-// Class OOP untuk DRAGONAIR
-// =================================================================
-
 function Dragonair(gl, programInfo) {
     this.gl = gl;
     this.programInfo = programInfo;
-
     this.rootNode = null;
     this.nodes = {};
     this.bodyData = null;
     this.bodyBuffers = null;
-    
     this.bodySegmentsCount = 20;
     this.segmentLength = 0.9;
     this.startRadius = 0.6;
     this.maxRadius = 0.8;
     this.endRadius = 0.1;
-
     this.position = [0, 0, 0];
     this.currentAngleY = 0;
     this.targetAngleY = 0;
     this.moveSpeed = 5.0; 
     this.turnSpeed = 90.0;
-    
-    // [UPDATE] Jarak berhenti diperbesar (8.5)
-    // Agar berhenti saat kepala (di ujung leher) sampai di buah, bukan badannya.
     this.targetReachedThreshold = 8.5; 
-    
     this.facingThreshold = 5.0;
     this.collisionRadius = 2.0; 
     this.worldBounds = 180.0; 
     this.obstacles = []; 
-
     this.animationState = "IDLE_STATIC"; 
     this.stateTimer = 0.0;
     this.targetFruitPosition = [10, 0]; 
     this.idleRadius = 50.0; 
-    
     this.loveLoveParticles = [];
     this.loveLoveDuration = 2.0;
     this.loveLoveStartTime = 0;
-
     this.eatingParticles = []; 
     this.eatingDuration = 2.5;
 }
 
-// =================================================================
-// Dragonair.prototype.init
-// =================================================================
 Dragonair.prototype.init = function() {
     var gl = this.gl;
     var programInfo = this.programInfo;
@@ -279,10 +259,8 @@ Dragonair.prototype.init = function() {
     ];
     var neckOrbBuffers = initBuffers(gl, programInfo, neckOrbGeo);
     this.nodes.loveBuffer = initBuffers(gl, programInfo, loveGeo); 
-
     var crumbGeo = createCubeSimple(0.4, CRUMB_COLOR); 
     this.nodes.crumbBuffer = initBuffers(this.gl, this.programInfo, crumbGeo)
-
     this.rootNode = new SceneNode(null);
     this.nodes.body = new SceneNode(null); 
     this.rootNode.children.push(this.nodes.body);
@@ -316,7 +294,6 @@ Dragonair.prototype.init = function() {
     this.nodes.tailBall2.children.push(this.nodes.tailBall3);
     this.nodes.loveContainer = new SceneNode(null); 
     this.nodes.head.children.push(this.nodes.loveContainer);
-    
     this.nodes.crumbContainer = new SceneNode(null);
     this.nodes.head.children.push(this.nodes.crumbContainer);
 };
@@ -332,81 +309,38 @@ function createCubeSimple(size, color) {
         -s, -s, -s,  -s, -s,  s,  -s,  s,  s,  -s,  s, -s,
     ];
     var colors = [];
-    for(var i=0; i<24; i++) {
-        colors.push(color[0], color[1], color[2], color[3]);
-    }
-    var indices = [
-        0,  1,  2,      0,  2,  3,    
-        4,  5,  6,      4,  6,  7,    
-        8,  9,  10,     8,  10, 11,   
-        12, 13, 14,     12, 14, 15,   
-        16, 17, 18,     16, 18, 19,   
-        20, 21, 22,     20, 22, 23    
-    ];
+    for(var i=0; i<24; i++) { colors.push(color[0], color[1], color[2], color[3]); }
+    var indices = [ 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23 ];
     return { vertices: new Float32Array(vertices), colors: new Float32Array(colors), indices: new Uint16Array(indices) };
 }
 
 Dragonair.prototype.updateEatingParticles = function(dt) {
     if (!this.nodes.crumbContainer) return;
     this.nodes.crumbContainer.children = [];
-
-    if (this.animationState !== "EATING") {
-        this.eatingParticles = [];
-        return;
-    }
-
+    if (this.animationState !== "EATING") { this.eatingParticles = []; return; }
     if (this.stateTimer < this.eatingDuration - 0.5) { 
         var spawnCount = 3; 
         for (var i = 0; i < spawnCount; i++) {
             this.eatingParticles.push({
-                x: 0, 
-                y: -0.2, 
-                z: 0.8, 
-                vx: (Math.random() - 0.5) * 6.0, 
-                vy: (Math.random() * 1.0) - 0.5,    
-                vz: 1.5 + Math.random() * 2.0,   
-                life: 1.0, 
-                rotX: Math.random() * Math.PI,
-                rotY: Math.random() * Math.PI
+                x: 0, y: -0.2, z: 0.8, vx: (Math.random() - 0.5) * 6.0, vy: (Math.random() * 1.0) - 0.5, vz: 1.5 + Math.random() * 2.0, life: 1.0, rotX: Math.random() * Math.PI, rotY: Math.random() * Math.PI
             });
         }
     }
-
     for (var i = this.eatingParticles.length - 1; i >= 0; i--) {
         var p = this.eatingParticles[i];
         p.life -= dt * 1.8; 
-        
-        if (p.life <= 0) {
-            this.eatingParticles.splice(i, 1);
-            continue;
-        }
-
-        p.vy -= 9.8 * dt * 2.0; 
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.z += p.vz * dt;
-        p.rotX += dt * 10;
-        p.rotY += dt * 10;
-
+        if (p.life <= 0) { this.eatingParticles.splice(i, 1); continue; }
+        p.vy -= 9.8 * dt * 2.0; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.rotX += dt * 10; p.rotY += dt * 10;
         var crumbNode = new SceneNode(this.nodes.crumbBuffer);
-        crumbNode.localMatrix.setIdentity()
-            .translate(p.x, p.y, p.z)
-            .rotate(p.rotX * 57.29, 1, 0, 0)
-            .rotate(p.rotY * 57.29, 0, 1, 0)
-            .scale(p.life, p.life, p.life); 
-        
+        crumbNode.localMatrix.setIdentity().translate(p.x, p.y, p.z).rotate(p.rotX * 57.29, 1, 0, 0).rotate(p.rotY * 57.29, 0, 1, 0).scale(p.life, p.life, p.life); 
         this.nodes.crumbContainer.children.push(crumbNode);
     }
 };
 
-Dragonair.prototype.setObstacles = function(obstaclesList) {
-    this.obstacles = obstaclesList;
-}
+Dragonair.prototype.setObstacles = function(obstaclesList) { this.obstacles = obstaclesList; }
 
 Dragonair.prototype._isPositionBlocked = function(x, z) {
-    if (Math.abs(x) > this.worldBounds || Math.abs(z) > this.worldBounds) {
-        return true; 
-    }
+    if (Math.abs(x) > this.worldBounds || Math.abs(z) > this.worldBounds) { return true; }
     if (!this.obstacles) return false; 
     for (let i = 0; i < this.obstacles.length; i++) {
         const obs = this.obstacles[i];
@@ -414,30 +348,17 @@ Dragonair.prototype._isPositionBlocked = function(x, z) {
         const dz = z - obs.z;
         const distSquared = dx * dx + dz * dz;
         const minCollisionDist = obs.radius + this.collisionRadius;
-        if (distSquared < (minCollisionDist * minCollisionDist)) {
-            return true; 
-        }
+        if (distSquared < (minCollisionDist * minCollisionDist)) { return true; }
     }
     return false; 
 }
 
 Dragonair.prototype.updateLoveLove = function(nowSeconds, dt) {
-    if (this.animationState !== "LOVE_LOVE") {
-        this.nodes.loveContainer.children = [];
-        return;
-    }
+    if (this.animationState !== "LOVE_LOVE") { this.nodes.loveContainer.children = []; return; }
     if (this.loveLoveParticles.length === 0) {
         this.loveLoveStartTime = nowSeconds;
         for (let i = 0; i < 15; i++) {
-            this.loveLoveParticles.push({
-                x: (Math.random() - 0.5) * 0.5,
-                y: 0.5,
-                z: 0.7, 
-                speedY: 2.0 + Math.random() * 1.5,
-                life: 0,
-                maxLife: this.loveLoveDuration * (0.8 + Math.random() * 0.4),
-                scale: 0.5 + Math.random() * 0.5
-            });
+            this.loveLoveParticles.push({ x: (Math.random() - 0.5) * 0.5, y: 0.5, z: 0.7, speedY: 2.0 + Math.random() * 1.5, life: 0, maxLife: this.loveLoveDuration * (0.8 + Math.random() * 0.4), scale: 0.5 + Math.random() * 0.5 });
         }
     }
     this.nodes.loveContainer.children = [];
@@ -454,14 +375,11 @@ Dragonair.prototype.updateLoveLove = function(nowSeconds, dt) {
             scaleFactor = Math.max(0.0, scaleFactor);
             if (scaleFactor > 0.01) {
                 let loveNode = new SceneNode(this.nodes.loveBuffer);
-                loveNode.localMatrix.setIdentity()
-                    .translate(p.x, p.y, p.z)
-                    .scale(scaleFactor, scaleFactor, scaleFactor);
+                loveNode.localMatrix.setIdentity().translate(p.x, p.y, p.z).scale(scaleFactor, scaleFactor, scaleFactor);
                 this.nodes.loveContainer.children.push(loveNode);
             }
         }
     });
-    
     if (isFinished && nowSeconds - this.loveLoveStartTime > this.loveLoveDuration + 1.0) {
         this.animationState = "IDLE_STATIC"; 
         this.loveLoveParticles = [];
@@ -469,9 +387,8 @@ Dragonair.prototype.updateLoveLove = function(nowSeconds, dt) {
 };
 
 // =================================================================
-// Dragonair.prototype.update
+// UPDATED: Update Logic (WAITING -> NOTICE_FRUIT -> MOVE)
 // =================================================================
-
 Dragonair.prototype.update = function(now, groundY, elapsed) {
     var gl = this.gl;
     var programInfo = this.programInfo;
@@ -480,6 +397,7 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
     this.stateTimer += dt;
     
     let waveTimeFactor = now * 0.001; 
+    let jumpY = 0;
 
     switch (this.animationState) {
         case "IDLE_STATIC":
@@ -487,7 +405,6 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             this.stateTimer = 0; 
             break;
 
-        // --- LOGIKA JALAN ACAK (WANDER) ---
         case 'DYNAMIC_IDLE': 
             this.stateTimer = 0;
             let angle = Math.random() * 2 * Math.PI;
@@ -512,12 +429,7 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             waveTimeFactor = now * 0.005;
             let dx_dyn = this.targetFruitPosition[0] - this.position[0];
             let dz_dyn = this.targetFruitPosition[1] - this.position[2];
-            
-            if (Math.abs(dx_dyn) < 0.01 && Math.abs(dz_dyn) < 0.01) {
-                 this.animationState = "DYNAMIC_IDLE"; 
-                 break;
-            }
-
+            if (Math.abs(dx_dyn) < 0.01 && Math.abs(dz_dyn) < 0.01) { this.animationState = "DYNAMIC_IDLE"; break; }
             let targetAngleRad_dyn = Math.atan2(dx_dyn, dz_dyn);
             this.targetAngleY = targetAngleRad_dyn * 180.0 / Math.PI;
             let angleDiff_dyn = this.targetAngleY - this.currentAngleY;
@@ -537,7 +449,6 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             let dx_dyn_walk = this.targetFruitPosition[0] - this.position[0];
             let dz_dyn_walk = this.targetFruitPosition[1] - this.position[2];
             let distToTarget_dyn_walk = Math.sqrt(dx_dyn_walk * dx_dyn_walk + dz_dyn_walk * dz_dyn_walk);
-            
             if (distToTarget_dyn_walk < this.targetReachedThreshold) {
                 this.animationState = "DYNAMIC_IDLE"; 
                 this.stateTimer = 0;
@@ -548,7 +459,6 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
                 let moveAmount = this.moveSpeed * dt;
                 let nextX = this.position[0] + moveDirX * moveAmount;
                 let nextZ = this.position[2] + moveDirZ * moveAmount;
-
                 if (this._isPositionBlocked(nextX, nextZ)) {
                     this.animationState = "DYNAMIC_IDLE"; 
                 } else {
@@ -558,34 +468,49 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             }
             break;
         
-        // --- LOGIKA MAKAN BUAH ---
-        case "START_WALK":
-            waveTimeFactor = now * 0.005;
-            let dx = this.targetFruitPosition[0] - this.position[0];
-            let dz = this.targetFruitPosition[1] - this.position[2];
-            let distToTarget_start = Math.sqrt(dx * dx + dz * dz);
-            
-            if (distToTarget_start < this.targetReachedThreshold) {
-                this.animationState = "EATING"; 
+        // --- [FIXED] LOGIKA TUNGGU 4.5 DETIK ---
+        case "WAITING":
+             waveTimeFactor = now * 0.005; 
+             if (this.stateTimer > 10) { // Tunggu 4.5 detik di sini
+                this.animationState = "NOTICE_FRUIT";
                 this.stateTimer = 0;
-                if (window.myWorld && window.myWorld.nodes.fallingFruit) {
-                    window.myWorld.nodes.fallingFruit.enabled = false;
-                }
-                break;
+             }
+             break;
+
+        case "NOTICE_FRUIT":
+            // Failsafe agar tidak stuck
+            if (this.stateTimer > 2.0) {
+                 this.animationState = "WALK_TO_FRUIT";
+            }
+
+            if (this.stateTimer < 0.3) {
+                jumpY = Math.sin(this.stateTimer * 10) * 2.0; 
             }
             
-            let targetAngleRad = Math.atan2(dx, dz);
-            this.targetAngleY = targetAngleRad * 180.0 / Math.PI;
-            let angleDiff = this.targetAngleY - this.currentAngleY;
-            while (angleDiff > 180) angleDiff -= 360;
-            while (angleDiff < -180) angleDiff += 360;
-            let turnAmount = this.turnSpeed * dt * 0.7; 
-            if (Math.abs(angleDiff) < this.facingThreshold || Math.abs(angleDiff) < turnAmount) {
-                this.currentAngleY = this.targetAngleY; 
-                this.animationState = "WALK_TO_FRUIT"; 
+            let dx_notice = this.targetFruitPosition[0] - this.position[0];
+            let dz_notice = this.targetFruitPosition[1] - this.position[2];
+            let targetAngleRad_notice = Math.atan2(dx_notice, dz_notice);
+            let targetAngleDeg_notice = targetAngleRad_notice * 180.0 / Math.PI;
+            
+            let angleDiff_notice = targetAngleDeg_notice - this.currentAngleY;
+            while (angleDiff_notice > 180) angleDiff_notice -= 360;
+            while (angleDiff_notice < -180) angleDiff_notice += 360;
+            
+            let fastTurnSpeed = this.turnSpeed * 10.0; 
+            let turnAmount_notice = fastTurnSpeed * dt; 
+            
+            if (Math.abs(angleDiff_notice) < this.facingThreshold || Math.abs(angleDiff_notice) < turnAmount_notice) {
+                this.currentAngleY = targetAngleDeg_notice;
+                if (this.stateTimer > 0.5) { 
+                    this.animationState = "WALK_TO_FRUIT";
+                }
             } else {
-                this.currentAngleY += Math.sign(angleDiff) * turnAmount;
+                this.currentAngleY += Math.sign(angleDiff_notice) * turnAmount_notice;
             }
+            break;
+
+        case "START_WALK": 
+            this.animationState = "NOTICE_FRUIT"; 
             break;
             
         case "WALK_TO_FRUIT":
@@ -603,25 +528,20 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             } else {
                 let targetAngleRad = Math.atan2(dx_walk, dz_walk);
                 let targetAngleDeg = targetAngleRad * 180.0 / Math.PI;
-                
                 let angleDiff = targetAngleDeg - this.currentAngleY;
                 while (angleDiff > 180) angleDiff -= 360;
                 while (angleDiff < -180) angleDiff += 360;
-                
                 let turnStep = this.turnSpeed * dt * 3.0; 
                 if (Math.abs(angleDiff) > turnStep) {
                     this.currentAngleY += Math.sign(angleDiff) * turnStep;
                 } else {
                     this.currentAngleY = targetAngleDeg;
                 }
-
                 let moveRad = this.currentAngleY * Math.PI / 180.0;
                 let moveX = Math.sin(moveRad) * this.moveSpeed * dt;
                 let moveZ = Math.cos(moveRad) * this.moveSpeed * dt;
-
                 let nextX = this.position[0] + moveX;
                 let nextZ = this.position[2] + moveZ;
-                
                 if (Math.abs(nextX) > this.worldBounds || Math.abs(nextZ) > this.worldBounds) {
                    this.animationState = "DYNAMIC_IDLE";
                 } else {
@@ -648,19 +568,12 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             break;
     }
     
-    // =================================================================
-    // PEMBUATAN BADAN & MATRIKS
-    // =================================================================
-    
     this.bodyData = createDragonairSmoothBody(
         this.bodySegmentsCount, this.segmentLength, this.startRadius, 
         this.maxRadius, this.endRadius, waveTimeFactor 
     );
 
     if (!this.bodyData) { console.error("Gagal membuat bodyData"); return; }
-    
-    if (this.bodyBuffers) {
-    }
     
     this.bodyBuffers = initBuffers(gl, programInfo, this.bodyData); 
     if (!this.bodyBuffers) { console.error("Gagal init bodyBuffers"); return; }
@@ -669,7 +582,7 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
     var neckAttachMatrix = this.bodyData.neckAttachMatrix || new Matrix4();
 
     if (this.bodyData.minY === undefined) { console.error("bodyData.minY tidak terdefinisi!"); return; }
-    var modelGroundY = groundY - this.bodyData.minY + 0.01; 
+    var modelGroundY = groundY - this.bodyData.minY + 0.01 + jumpY; 
 
     this.rootNode.localMatrix.setIdentity();
     this.rootNode.localMatrix.translate(this.position[0], modelGroundY, this.position[2]); 
@@ -684,9 +597,8 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
         .scale(1.0, 1.0, 1.3);
 
     if (this.animationState === "EATING") {
-        // [UPDATE] Animasi menunduk DIHAPUS. Ganti dengan mengunyah sederhana.
         let eatProgress = this.stateTimer; 
-        let chewing = Math.sin(eatProgress * 10) * 5; // Derajat kecil saja
+        let chewing = Math.sin(eatProgress * 10) * 5; 
         this.nodes.head.localMatrix.rotate(chewing, 1, 0, 0);
     }
 
@@ -721,33 +633,3 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
 Dragonair.prototype.getRootNode = function() {
     return this.rootNode;
 };
-
-// =================================================================
-// SCENE NODE & HELPER (TIDAK BERUBAH)
-// =================================================================
-
-function SceneNode(buffers, localMatrix) {
-    this.buffers = buffers;
-    this.localMatrix = localMatrix || new Matrix4();
-    this.worldMatrix = new Matrix4();
-    this.children = [];
-}
-
-function drawSceneGraph(gl, programInfo, node, parentWorldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers) {
-    node.worldMatrix.set(parentWorldMatrix).multiply(node.localMatrix);
-
-    if (node.buffers) {
-        if (node.enabled !== false) { 
-            drawPart(gl, programInfo, node.buffers, node.worldMatrix, viewMatrix, projMatrix, mvpMatrix);
-        }
-    }
-
-    if (oriPointBuffers) {
-        var oriMatrix = new Matrix4(node.worldMatrix).scale(0.5, 0.5, 0.5);
-        drawPart(gl, programInfo, oriPointBuffers, oriMatrix, viewMatrix, projMatrix, mvpMatrix);
-    }
-
-    for (var i = 0; i < node.children.length; i++) {
-        drawSceneGraph(gl, programInfo, node.children[i], node.worldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
-    }
-}

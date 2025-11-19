@@ -1,5 +1,5 @@
 // =================================================================
-// main.js (UPDATED: POV 'Q' Higher & Further)
+// main.js (FINAL: Smooth Camera Transition - No Jump after Eating)
 // =================================================================
 
 var groundGreen = [0.4, 0.8, 0.4, 1.0];
@@ -37,15 +37,11 @@ function drawSceneGraph(gl, programInfo, node, parentWorldMatrix, viewMatrix, pr
 
 function main() {
     var canvas = document.getElementById("webgl");
-    // Set ukuran awal full window
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     
     var gl = canvas.getContext("webgl");
-    if (!gl) {
-        console.log("Gagal mendapatkan konteks WebGL");
-        return;
-    }
+    if (!gl) { console.log("Gagal mendapatkan konteks WebGL"); return; }
 
     var vsSource = document.getElementById("shader-vs").innerText;
     var fsSource = document.getElementById("shader-fs").innerText;
@@ -89,7 +85,6 @@ function main() {
     var viewMatrix = new Matrix4();
     var mvpMatrix = new Matrix4();
     
-    // Init Proyeksi Awal
     projMatrix.setPerspective(45, canvas.width / canvas.height, 1, 1000);
 
     // --- KAMERA ---
@@ -101,14 +96,12 @@ function main() {
     
     let isEatingCamActive = false;
     let isFruitCamActive = false; 
-    let isDragonairPovActive = false; // Flag untuk POV Dragonair
+    let isDragonairPovActive = false; 
+    
+    let isPaused = false; 
 
     var currentScenario = "STATIC_IDLE"; 
     var isTransitioningCamera = false;
-    
-    const DragonairFocusY = 3.0;
-    const DragonairFocusDistance = 15.0; 
-    const DragonairFocusAngleX = 10.0;
     
     let isDragging = false;
     let lastMouseX = -1, lastMouseY = -1;
@@ -116,6 +109,10 @@ function main() {
     const moveSpeed = 0.5; 
     let keysPressed = {}; 
     
+    // Variabel Timer Kamera Awal
+    let cameraStartTimer = 0.0;
+    let animationTimerID = null;
+
     function updateCamera() {
         let radX = (cameraAngleX * Math.PI) / 180.0;
         let radY = (cameraAngleY * Math.PI) / 180.0;
@@ -137,7 +134,9 @@ function main() {
     canvas.onmouseup = function (ev) { isDragging = false; };
     canvas.onmouseleave = function (ev) { isDragging = false; };
     canvas.onmousemove = function (ev) {
-        if (isEatingCamActive || isFruitCamActive || isDragonairPovActive) return; 
+        // Block mouse saat animasi makan/love agar tidak fight dengan auto-camera
+        if (((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused) || isFruitCamActive || isDragonairPovActive) return; 
+        
         if (!isDragging) return;
         let x = ev.clientX, y = ev.clientY;
         let deltaX = x - lastMouseX;
@@ -149,7 +148,7 @@ function main() {
         updateCamera();
     };
     canvas.onwheel = function (ev) {
-        if (isEatingCamActive || isFruitCamActive || isDragonairPovActive) return;
+        if (((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused) || isFruitCamActive || isDragonairPovActive) return;
         ev.preventDefault();
         let zoomSensitivity = 0.05;
         cameraDistance += ev.deltaY * zoomSensitivity;
@@ -161,17 +160,35 @@ function main() {
         let key = ev.key.toLowerCase();
         keysPressed[key] = true; 
         
-        if (key === '2') {
-            // Aktifkan animasi tanpa mengunci kamera
-            if (currentScenario !== "DRAGONAIR_ANIMATION") {
-                currentScenario = "DRAGONAIR_ANIMATION";
-                isTransitioningCamera = false; 
-                isEatingCamActive = false;
-                myDragonair.stateTimer = 10.0; // Trigger langsung
-            }
+        if (key === '1') {
+            isPaused = !isPaused;
+            console.log("Freeze Mode:", isPaused);
         }
+
+        if (key === '2') {
+            currentScenario = "DRAGONAIR_ANIMATION";
+            if (animationTimerID) clearTimeout(animationTimerID);
+
+            isTransitioningCamera = false; 
+            isEatingCamActive = false;
+            isFruitCamActive = false;
+            isDragonairPovActive = false;
+            isPaused = false; 
+
+            let targetTree = myWorld.allTrees.find(t => Math.abs(t.position[0] - 60) < 1.0 && Math.abs(t.position[2] - 50) < 1.0);
+            if (!targetTree) targetTree = myWorld.allTrees[1]; 
+            myWorld.dropFruit(0, 0, targetTree); 
+
+            let fPos = myWorld.fruitState.pos;
+            myDragonair.targetFruitPosition = [fPos[0], fPos[2]];
+
+            myDragonair.animationState = "WAITING"; 
+            myDragonair.stateTimer = 0;
+
+            console.log("Buah Jatuh! Menunggu...");
+        }
+        
         if (key === 'q') {
-            // Toggle POV Dragonair
             isDragonairPovActive = !isDragonairPovActive;
             if(isDragonairPovActive) {
                 isEatingCamActive = false;
@@ -208,92 +225,121 @@ function main() {
         
         gl.viewport(0, 0, canvas.width, canvas.height);
 
+        cameraStartTimer += dt;
+
         // =================================================================
         // LOGIKA KAMERA
         // =================================================================
         
-        // 1. Prioritas: POV DRAGONAIR (Tombol Q)
-        if (isDragonairPovActive) {
-            let dPos = myDragonair.position;
-            let radAngle = myDragonair.currentAngleY * Math.PI / 180.0;
-            
-            // --- [UPDATED] SETTING KAMERA POV ---
-            // Jarak diperjauh (25.0) dan dipertinggi (14.0)
-            let camDist = 10.0; 
-            let camHeight = 10.0;
-            
-            // Posisi Kamera (Di belakang badan)
-            cameraPosition[0] = dPos[0] - Math.sin(radAngle) * camDist;
-            cameraPosition[1] = dPos[1] + camHeight;
-            cameraPosition[2] = dPos[2] - Math.cos(radAngle) * camDist;
-
-            // Target Kamera (Melihat ke depan Dragonair, agak jauh)
-            let lookDist = 10.0;
-            cameraTarget[0] = dPos[0] + Math.sin(radAngle) * lookDist;
-            cameraTarget[1] = dPos[1] + 2.0; // Fokus tetap di sekitar tinggi kepala
-            cameraTarget[2] = dPos[2] + Math.cos(radAngle) * lookDist;
-
-            viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
-        }
-        // 2. Kamera Buah (Tombol E)
-        else if (isFruitCamActive && window.myWorld && window.myWorld.fruitState.active) {
-            let fPos = window.myWorld.fruitState.pos;
-            let lerpSpeed = 5.0 * dt; 
-            cameraTarget[0] += (fPos[0] - cameraTarget[0]) * lerpSpeed;
-            cameraTarget[1] += (fPos[1] - cameraTarget[1]) * lerpSpeed;
-            cameraTarget[2] += (fPos[2] - cameraTarget[2]) * lerpSpeed;
-
-            let camOffsetX = 8.0; let camOffsetY = 5.0; let camOffsetZ = 8.0;
-            let targetPosX = fPos[0] + camOffsetX;
-            let targetPosY = fPos[1] + camOffsetY;
-            let targetPosZ = fPos[2] + camOffsetZ;
-
-            cameraPosition[0] += (targetPosX - cameraPosition[0]) * lerpSpeed;
-            cameraPosition[1] += (targetPosY - cameraPosition[1]) * lerpSpeed;
-            cameraPosition[2] += (targetPosZ - cameraPosition[2]) * lerpSpeed;
-
-            viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
+        if (cameraStartTimer < 1.5) {
+             // Intro Delay (No Op)
         } 
-        // 3. FREE CAM (WASD)
         else {
-            if (isEatingCamActive || (isFruitCamActive && !window.myWorld.fruitState.active)) {
-                let dx = cameraPosition[0] - cameraTarget[0]; let dy = cameraPosition[1] - cameraTarget[1]; let dz = cameraPosition[2] - cameraTarget[2];
-                cameraDistance = Math.sqrt(dx * dx + dy * dy + dz * dz); cameraAngleX = Math.asin(dy / cameraDistance) * (180 / Math.PI);
-                if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) { cameraAngleY = Math.atan2(dx, dz) * (180 / Math.PI); }
-                isEatingCamActive = false;
-                if (!window.myWorld.fruitState.active) isFruitCamActive = false; 
+            // 1. POV Dragonair (Q)
+            if (isDragonairPovActive) {
+                let dPos = myDragonair.position;
+                let radAngle = myDragonair.currentAngleY * Math.PI / 180.0;
+                let camDist = 25.0; let camHeight = 14.0;
+                cameraPosition[0] = dPos[0] - Math.sin(radAngle) * camDist;
+                cameraPosition[1] = dPos[1] + camHeight;
+                cameraPosition[2] = dPos[2] - Math.cos(radAngle) * camDist;
+                let lookDist = 15.0;
+                cameraTarget[0] = dPos[0] + Math.sin(radAngle) * lookDist;
+                cameraTarget[1] = dPos[1] + 2.0; 
+                cameraTarget[2] = dPos[2] + Math.cos(radAngle) * lookDist;
+                viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
             }
-            let radY = (cameraAngleY * Math.PI) / 180.0; let backVector = [Math.sin(radY), 0, Math.cos(radY)]; let rightVector = [Math.cos(radY), 0, -Math.sin(radY)]; let moved = false; let actualMoveSpeed = moveSpeed * elapsed / 16.667; 
-            if (keysPressed["w"]) { cameraTarget[0] -= backVector[0] * actualMoveSpeed; cameraTarget[2] -= backVector[2] * actualMoveSpeed; moved = true; }
-            if (keysPressed["s"]) { cameraTarget[0] += backVector[0] * actualMoveSpeed; cameraTarget[2] += backVector[2] * actualMoveSpeed; moved = true; }
-            if (keysPressed["a"]) { cameraTarget[0] -= rightVector[0] * actualMoveSpeed; cameraTarget[2] -= rightVector[2] * actualMoveSpeed; moved = true; }
-            if (keysPressed["d"]) { cameraTarget[0] += rightVector[0] * actualMoveSpeed; cameraTarget[2] += rightVector[2] * actualMoveSpeed; moved = true; }
-            if (keysPressed[" "]) { cameraTarget[1] += actualMoveSpeed; moved = true; }
-            if (keysPressed["shift"]) { cameraTarget[1] -= actualMoveSpeed; moved = true; }
-            if (moved || (!isEatingCamActive && !isFruitCamActive && !isDragonairPovActive)) { updateCamera(); }
+            // 2. Kamera Buah (E)
+            else if (isFruitCamActive && window.myWorld && window.myWorld.fruitState.active) {
+                let fPos = window.myWorld.fruitState.pos;
+                let lerpSpeed = 5.0 * dt; 
+                if (!isPaused) {
+                    cameraTarget[0] += (fPos[0] - cameraTarget[0]) * lerpSpeed;
+                    cameraTarget[1] += (fPos[1] - cameraTarget[1]) * lerpSpeed;
+                    cameraTarget[2] += (fPos[2] - cameraTarget[2]) * lerpSpeed;
+                    let camOffsetX = 8.0; let camOffsetY = 5.0; let camOffsetZ = 8.0;
+                    let targetPosX = fPos[0] + camOffsetX;
+                    let targetPosY = fPos[1] + camOffsetY;
+                    let targetPosZ = fPos[2] + camOffsetZ;
+                    cameraPosition[0] += (targetPosX - cameraPosition[0]) * lerpSpeed;
+                    cameraPosition[1] += (targetPosY - cameraPosition[1]) * lerpSpeed;
+                    cameraPosition[2] += (targetPosZ - cameraPosition[2]) * lerpSpeed;
+                }
+                viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
+            } 
+            // 3. Kamera Otomatis Saat MAKAN atau LOVE_LOVE (Auto Cam)
+            else if ((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused) {
+                let dPos = myDragonair.position; 
+                let radAngle = myDragonair.currentAngleY * Math.PI / 180.0;
+                
+                // Kamera Depan Wajah
+                let frontDist = 12.0;
+                let camHeight = 4.0;
+                
+                let targetCamX = dPos[0] + Math.sin(radAngle) * frontDist; 
+                let targetCamZ = dPos[2] + Math.cos(radAngle) * frontDist; 
+                let targetCamY = dPos[1] + camHeight;
+    
+                let lookX = dPos[0]; 
+                let lookY = dPos[1] + 3.0; 
+                let lookZ = dPos[2];
+    
+                let lerpSpeed = 3.0 * dt; 
+                
+                // Lerp Posisi Kamera
+                cameraPosition[0] += (targetCamX - cameraPosition[0]) * lerpSpeed;
+                cameraPosition[1] += (targetCamY - cameraPosition[1]) * lerpSpeed;
+                cameraPosition[2] += (targetCamZ - cameraPosition[2]) * lerpSpeed;
+                
+                cameraTarget[0] += (lookX - cameraTarget[0]) * lerpSpeed;
+                cameraTarget[1] += (lookY - cameraTarget[1]) * lerpSpeed;
+                cameraTarget[2] += (lookZ - cameraTarget[2]) * lerpSpeed;
+    
+                viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
+
+                // [FIX] SINKRONISASI FREE CAM
+                // Agar saat mode ini selesai, Free Cam tidak "loncat", kita update variabel free cam
+                // mengikuti posisi kamera otomatis saat ini.
+                let dx = cameraPosition[0] - cameraTarget[0];
+                let dy = cameraPosition[1] - cameraTarget[1];
+                let dz = cameraPosition[2] - cameraTarget[2];
+                cameraDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                // Update Angle X & Y agar match
+                cameraAngleX = Math.asin(dy / cameraDistance) * (180 / Math.PI);
+                if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) { 
+                    cameraAngleY = Math.atan2(dx, dz) * (180 / Math.PI); 
+                }
+            }
+            // 4. Free Cam (Default)
+            else {
+                let radY = (cameraAngleY * Math.PI) / 180.0; 
+                let backVector = [Math.sin(radY), 0, Math.cos(radY)]; 
+                let rightVector = [Math.cos(radY), 0, -Math.sin(radY)]; 
+                
+                let moved = false; 
+                let actualMoveSpeed = moveSpeed * elapsed / 16.667; 
+                
+                if (keysPressed["w"]) { cameraTarget[0] -= backVector[0] * actualMoveSpeed; cameraTarget[2] -= backVector[2] * actualMoveSpeed; moved = true; }
+                if (keysPressed["s"]) { cameraTarget[0] += backVector[0] * actualMoveSpeed; cameraTarget[2] += backVector[2] * actualMoveSpeed; moved = true; }
+                if (keysPressed["a"]) { cameraTarget[0] -= rightVector[0] * actualMoveSpeed; cameraTarget[2] -= rightVector[2] * actualMoveSpeed; moved = true; }
+                if (keysPressed["d"]) { cameraTarget[0] += rightVector[0] * actualMoveSpeed; cameraTarget[2] += rightVector[2] * actualMoveSpeed; moved = true; }
+                if (keysPressed[" "]) { cameraTarget[1] += actualMoveSpeed; moved = true; }
+                if (keysPressed["shift"]) { cameraTarget[1] -= actualMoveSpeed; moved = true; }
+                
+                if (moved || (!isEatingCamActive && !isFruitCamActive && !isDragonairPovActive)) { updateCamera(); }
+            }
         }
         
         // =================================================================
         // LOGIKA GAMEPLAY
         // =================================================================
-        if (currentScenario === "DRAGONAIR_ANIMATION") {
-            if (window.myWorld && window.myWorld.nodes.fallingFruit.enabled) {
-                let fruitPos = window.myWorld.fruitState.pos;
-                myDragonair.targetFruitPosition = [fruitPos[0], fruitPos[2]];
-            }
-            
-            if (myDragonair.animationState === "DYNAMIC_IDLE") {
-                if (myDragonair.stateTimer > 3.0) { 
-                    let targetTree = myWorld.allTrees.find(t => Math.abs(t.position[0] - 60) < 1.0 && Math.abs(t.position[2] - 50) < 1.0);
-                    if (!targetTree) targetTree = myWorld.allTrees[1]; 
-                    myWorld.dropFruit(0, 0, targetTree); 
-                    myDragonair.animationState = "START_WALK"; 
-                    myDragonair.stateTimer = 0; 
-                }
-            }
+        if (!isPaused) {
+            myWorld.update(now, elapsed); 
+            myDragonair.update(now, groundY, elapsed); 
+            myDratini.update(elapsed, worldBounds); 
+            myDragonite.update(now, groundY, elapsed);
         }
-
-        myWorld.update(now, elapsed); myDragonair.update(now, groundY, elapsed); myDratini.update(elapsed, worldBounds); myDragonite.update(now, groundY, elapsed);
+        
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         drawSceneGraph(gl, programInfo, myWorld.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, null);
         drawSceneGraph(gl, programInfo, myDragonair.getRootNode(), new Matrix4(), viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
