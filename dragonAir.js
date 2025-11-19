@@ -1,8 +1,7 @@
 // =================================================================
-// dragonAir.js (FIXED: FSM Logic for Collision & Fruit)
+// dragonAir.js (FIXED: Stop Early + No Bending Down)
 // =================================================================
 
-// ... (Kode warna global tidak berubah)
 var dragonairBlue = [0.4, 0.6, 1.0, 1.0];
 var dragonairWhite = [1.0, 1.0, 1.0, 1.0];
 var dragonairDarkPurple = [0.2, 0.0, 0.2, 1.0];
@@ -10,12 +9,12 @@ var dragonairEarWhite = [0.9, 0.9, 1.0, 1.0];
 var dragonairSnoutBlue = [0.6, 0.75, 1.0, 1.0];
 var crystalBlue = [0.23, 0.3, 0.79, 1.0]; 
 var LOVE_COLOR = [1.0, 0.5, 0.7, 1.0]; 
+var CRUMB_COLOR = [0.9, 0.5, 0.1, 1.0];
 
 // =================================================================
 // GEOMETRI DASAR (TIDAK BERUBAH)
 // =================================================================
 function createDragonairSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
-    // ... (Salin fungsi createDragonairSmoothBody Anda yang ada di sini) ...
     var vertices = [];
     var colors = [];
     var indices = [];
@@ -105,7 +104,6 @@ function createDragonairSmoothBody(segments, segmentLength, startRadius, maxRadi
 }
 
 function createSphere(radius, segments, rings, color) {
-    // ... (Salin fungsi createSphere Anda yang ada di sini) ...
     var vertices = [], colors = [], indices = [];
     for (var latNumber = 0; latNumber <= rings; latNumber++) {
         var theta = latNumber * Math.PI / rings;
@@ -138,7 +136,6 @@ function createSphere(radius, segments, rings, color) {
 }
 
 function createCone(baseRadius, height, segments, color) {
-    // ... (Salin fungsi createCone Anda yang ada di sini) ...
     var vertices = [], colors = [], indices = [];
     vertices.push(0, height, 0); 
     if (Array.isArray(color) && color.length >= 3) {
@@ -161,7 +158,6 @@ function createCone(baseRadius, height, segments, color) {
 }
 
 function createDragonairEarParaboloid(baseScaleX, baseScaleY, height, radialSegments, heightSegments, color) {
-    // ... (Salin fungsi createDragonairEarParaboloid Anda yang ada di sini) ...
     var vertices = [], colors = [], indices = [];
     const twistFactor = 0.2;
     const flareFactor = 0.3;
@@ -231,32 +227,32 @@ function Dragonair(gl, programInfo) {
     this.moveSpeed = 5.0; 
     this.turnSpeed = 90.0;
     
-    // [PERBAIKAN] Toleransi jarak untuk "sampai"
-    this.targetReachedThreshold = 2.5; 
+    // [UPDATE] Jarak berhenti diperbesar (8.5)
+    // Agar berhenti saat kepala (di ujung leher) sampai di buah, bukan badannya.
+    this.targetReachedThreshold = 8.5; 
     
     this.facingThreshold = 5.0;
-
-    // [PERBAIKAN] Properti untuk collision
-    this.collisionRadius = 2.0; // Radius Dragonair (bisa disesuaikan)
-    this.worldBounds = 180.0; // Batas jalan, lebih kecil dari plane (200)
-    this.obstacles = []; // Daftar rintangan (diisi oleh main.js)
+    this.collisionRadius = 2.0; 
+    this.worldBounds = 180.0; 
+    this.obstacles = []; 
 
     this.animationState = "IDLE_STATIC"; 
     this.stateTimer = 0.0;
-    this.targetFruitPosition = [10, 0]; // (Sesuai posisi awal di main.js)
-    this.idleRadius = 50.0; // Radius jalan acak di sekitar (0,0)
+    this.targetFruitPosition = [10, 0]; 
+    this.idleRadius = 50.0; 
     
     this.loveLoveParticles = [];
     this.loveLoveDuration = 2.0;
     this.loveLoveStartTime = 0;
+
+    this.eatingParticles = []; 
+    this.eatingDuration = 2.5;
 }
 
 // =================================================================
 // Dragonair.prototype.init
-// (TIDAK BERUBAH - Sama seperti yang Anda berikan)
 // =================================================================
 Dragonair.prototype.init = function() {
-    // ... (Salin fungsi init() Anda yang ada di sini) ...
     var gl = this.gl;
     var programInfo = this.programInfo;
     var headGeo = createSphere(1.0, 30, 30, dragonairBlue);
@@ -283,6 +279,10 @@ Dragonair.prototype.init = function() {
     ];
     var neckOrbBuffers = initBuffers(gl, programInfo, neckOrbGeo);
     this.nodes.loveBuffer = initBuffers(gl, programInfo, loveGeo); 
+
+    var crumbGeo = createCubeSimple(0.4, CRUMB_COLOR); 
+    this.nodes.crumbBuffer = initBuffers(this.gl, this.programInfo, crumbGeo)
+
     this.rootNode = new SceneNode(null);
     this.nodes.body = new SceneNode(null); 
     this.rootNode.children.push(this.nodes.body);
@@ -316,52 +316,112 @@ Dragonair.prototype.init = function() {
     this.nodes.tailBall2.children.push(this.nodes.tailBall3);
     this.nodes.loveContainer = new SceneNode(null); 
     this.nodes.head.children.push(this.nodes.loveContainer);
+    
+    this.nodes.crumbContainer = new SceneNode(null);
+    this.nodes.head.children.push(this.nodes.crumbContainer);
 };
 
-// =================================================================
-// [PERBAIKAN] FUNGSI BARU UNTUK COLLISION
-// =================================================================
+function createCubeSimple(size, color) {
+    var s = size / 2;
+    var vertices = [
+        -s, -s,  s,   s, -s,  s,   s,  s,  s,  -s,  s,  s,
+        -s, -s, -s,  -s,  s, -s,   s,  s, -s,   s, -s, -s,
+        -s,  s, -s,  -s,  s,  s,   s,  s,  s,   s,  s, -s,
+        -s, -s, -s,   s, -s, -s,   s, -s,  s,  -s, -s,  s,
+         s, -s, -s,   s,  s, -s,   s,  s,  s,   s, -s,  s,
+        -s, -s, -s,  -s, -s,  s,  -s,  s,  s,  -s,  s, -s,
+    ];
+    var colors = [];
+    for(var i=0; i<24; i++) {
+        colors.push(color[0], color[1], color[2], color[3]);
+    }
+    var indices = [
+        0,  1,  2,      0,  2,  3,    
+        4,  5,  6,      4,  6,  7,    
+        8,  9,  10,     8,  10, 11,   
+        12, 13, 14,     12, 14, 15,   
+        16, 17, 18,     16, 18, 19,   
+        20, 21, 22,     20, 22, 23    
+    ];
+    return { vertices: new Float32Array(vertices), colors: new Float32Array(colors), indices: new Uint16Array(indices) };
+}
 
-/** Menerima daftar rintangan dari main.js */
+Dragonair.prototype.updateEatingParticles = function(dt) {
+    if (!this.nodes.crumbContainer) return;
+    this.nodes.crumbContainer.children = [];
+
+    if (this.animationState !== "EATING") {
+        this.eatingParticles = [];
+        return;
+    }
+
+    if (this.stateTimer < this.eatingDuration - 0.5) { 
+        var spawnCount = 3; 
+        for (var i = 0; i < spawnCount; i++) {
+            this.eatingParticles.push({
+                x: 0, 
+                y: -0.2, 
+                z: 0.8, 
+                vx: (Math.random() - 0.5) * 6.0, 
+                vy: (Math.random() * 1.0) - 0.5,    
+                vz: 1.5 + Math.random() * 2.0,   
+                life: 1.0, 
+                rotX: Math.random() * Math.PI,
+                rotY: Math.random() * Math.PI
+            });
+        }
+    }
+
+    for (var i = this.eatingParticles.length - 1; i >= 0; i--) {
+        var p = this.eatingParticles[i];
+        p.life -= dt * 1.8; 
+        
+        if (p.life <= 0) {
+            this.eatingParticles.splice(i, 1);
+            continue;
+        }
+
+        p.vy -= 9.8 * dt * 2.0; 
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        p.rotX += dt * 10;
+        p.rotY += dt * 10;
+
+        var crumbNode = new SceneNode(this.nodes.crumbBuffer);
+        crumbNode.localMatrix.setIdentity()
+            .translate(p.x, p.y, p.z)
+            .rotate(p.rotX * 57.29, 1, 0, 0)
+            .rotate(p.rotY * 57.29, 0, 1, 0)
+            .scale(p.life, p.life, p.life); 
+        
+        this.nodes.crumbContainer.children.push(crumbNode);
+    }
+};
+
 Dragonair.prototype.setObstacles = function(obstaclesList) {
     this.obstacles = obstaclesList;
 }
 
-/** Cek tabrakan internal (Batas Peta, Pohon, Gunung) 
- * [PERBAIKAN] Cek danau dihapus dari sini.
-*/
 Dragonair.prototype._isPositionBlocked = function(x, z) {
-    // 1. Cek Batas Peta
     if (Math.abs(x) > this.worldBounds || Math.abs(z) > this.worldBounds) {
-        return true; // Tabrak batas peta
+        return true; 
     }
-
-    // 2. Cek Pohon & Gunung (dari daftar obstacles)
-    if (!this.obstacles) return false; // Pengaman jika obstacles belum di-set
-
+    if (!this.obstacles) return false; 
     for (let i = 0; i < this.obstacles.length; i++) {
         const obs = this.obstacles[i];
         const dx = x - obs.x;
         const dz = z - obs.z;
         const distSquared = dx * dx + dz * dz;
-        
-        // Jarak minimum = radius rintangan + radius model
         const minCollisionDist = obs.radius + this.collisionRadius;
-        
         if (distSquared < (minCollisionDist * minCollisionDist)) {
-            return true; // Tabrakan!
+            return true; 
         }
     }
-    
-    return false; // Aman
+    return false; 
 }
 
-// =================================================================
-// Dragonair.prototype.updateLoveLove
-// (TIDAK BERUBAH - Sama seperti yang Anda berikan)
-// =================================================================
 Dragonair.prototype.updateLoveLove = function(nowSeconds, dt) {
-    // ... (Salin fungsi updateLoveLove Anda yang ada di sini) ...
     if (this.animationState !== "LOVE_LOVE") {
         this.nodes.loveContainer.children = [];
         return;
@@ -402,17 +462,16 @@ Dragonair.prototype.updateLoveLove = function(nowSeconds, dt) {
         }
     });
     
-    // [PERBAIKAN] Logika 'selesai' dipindah ke FSM
     if (isFinished && nowSeconds - this.loveLoveStartTime > this.loveLoveDuration + 1.0) {
-        this.animationState = "IDLE_STATIC"; // Sinyal untuk FSM
+        this.animationState = "IDLE_STATIC"; 
         this.loveLoveParticles = [];
     }
 };
 
 // =================================================================
 // Dragonair.prototype.update
-// [PERBAIKAN] Logika FSM diperbarui untuk Cek Tabrakan
 // =================================================================
+
 Dragonair.prototype.update = function(now, groundY, elapsed) {
     var gl = this.gl;
     var programInfo = this.programInfo;
@@ -424,26 +483,18 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
 
     switch (this.animationState) {
         case "IDLE_STATIC":
-            // [PERBAIKAN] Ganti ke DYNAMIC_IDLE agar selalu bergerak
             this.animationState = "DYNAMIC_IDLE";
             this.stateTimer = 0; 
             break;
 
-        // --- [PERBAIKAN] LOGIKA JALAN ACAK (WANDER) BARU ---
-        
-        case 'DYNAMIC_IDLE': // Ini adalah state "Pilih target baru"
+        // --- LOGIKA JALAN ACAK (WANDER) ---
+        case 'DYNAMIC_IDLE': 
             this.stateTimer = 0;
-            
-            // [PERBAIKAN] FSM "glitch" fix:
-            // State ini HANYA memilih target baru.
-            
             let angle = Math.random() * 2 * Math.PI;
             let newTargetX, newTargetZ;
             let tries = 0;
-            
             do {
-                // Cari target baru di sekitar POSISI SAAT INI
-                let r = 20.0 + Math.random() * 30.0; // Jarak 20-50 unit
+                let r = 20.0 + Math.random() * 30.0; 
                 newTargetX = this.position[0] + Math.cos(angle) * r;
                 newTargetZ = this.position[2] + Math.sin(angle) * r;
                 angle += 0.5; 
@@ -451,11 +502,9 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             } while (
                 this._isPositionBlocked(newTargetX, newTargetZ) && tries < 20
             );
-
             this.targetFruitPosition[0] = newTargetX;
             this.targetFruitPosition[1] = newTargetZ; 
-            this.animationState = "DYNAMIC_START_WALK"; // Selalu lanjut ke 'berbelok'
-            
+            this.animationState = "DYNAMIC_START_WALK"; 
             waveTimeFactor = now * 0.008; 
             break;
         
@@ -465,7 +514,7 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             let dz_dyn = this.targetFruitPosition[1] - this.position[2];
             
             if (Math.abs(dx_dyn) < 0.01 && Math.abs(dz_dyn) < 0.01) {
-                 this.animationState = "DYNAMIC_IDLE"; // Langsung cari target baru
+                 this.animationState = "DYNAMIC_IDLE"; 
                  break;
             }
 
@@ -485,13 +534,12 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
 
         case "DYNAMIC_WALK_TO_TARGET":
             waveTimeFactor = now * 0.15; 
-
             let dx_dyn_walk = this.targetFruitPosition[0] - this.position[0];
             let dz_dyn_walk = this.targetFruitPosition[1] - this.position[2];
             let distToTarget_dyn_walk = Math.sqrt(dx_dyn_walk * dx_dyn_walk + dz_dyn_walk * dz_dyn_walk);
             
             if (distToTarget_dyn_walk < this.targetReachedThreshold) {
-                this.animationState = "DYNAMIC_IDLE"; // <-- Sampai. Cari target baru.
+                this.animationState = "DYNAMIC_IDLE"; 
                 this.stateTimer = 0;
             } else {
                 let currentAngleRad = this.currentAngleY * Math.PI / 180.0;
@@ -502,7 +550,7 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
                 let nextZ = this.position[2] + moveDirZ * moveAmount;
 
                 if (this._isPositionBlocked(nextX, nextZ)) {
-                    this.animationState = "DYNAMIC_IDLE"; // <-- Nabrak. Cari target baru.
+                    this.animationState = "DYNAMIC_IDLE"; 
                 } else {
                     this.position[0] = nextX;
                     this.position[2] = nextZ;
@@ -510,11 +558,7 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             }
             break;
         
-        // --- AKHIR LOGIKA JALAN ACAK ---
-
-
-        // --- LOGIKA MAKAN BUAH (Scenario 2) ---
-            
+        // --- LOGIKA MAKAN BUAH ---
         case "START_WALK":
             waveTimeFactor = now * 0.005;
             let dx = this.targetFruitPosition[0] - this.position[0];
@@ -546,7 +590,6 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             
         case "WALK_TO_FRUIT":
             waveTimeFactor = now * 0.15; 
-
             let dx_walk = this.targetFruitPosition[0] - this.position[0];
             let dz_walk = this.targetFruitPosition[1] - this.position[2];
             let distToTarget_walk = Math.sqrt(dx_walk * dx_walk + dz_walk * dz_walk);
@@ -558,23 +601,30 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
                     window.myWorld.nodes.fallingFruit.enabled = false;
                  }        
             } else {
-                // [PERBAIKAN] Logika collision dihapus agar dia BISA menembus
-                // pohon untuk makan buah yang ada di dalamnya.
+                let targetAngleRad = Math.atan2(dx_walk, dz_walk);
+                let targetAngleDeg = targetAngleRad * 180.0 / Math.PI;
                 
-                let currentAngleRad = this.currentAngleY * Math.PI / 180.0;
-                let moveDirX = Math.sin(currentAngleRad);
-                let moveDirZ = Math.cos(currentAngleRad);
-                let moveAmount = this.moveSpeed * dt;
+                let angleDiff = targetAngleDeg - this.currentAngleY;
+                while (angleDiff > 180) angleDiff -= 360;
+                while (angleDiff < -180) angleDiff += 360;
+                
+                let turnStep = this.turnSpeed * dt * 3.0; 
+                if (Math.abs(angleDiff) > turnStep) {
+                    this.currentAngleY += Math.sign(angleDiff) * turnStep;
+                } else {
+                    this.currentAngleY = targetAngleDeg;
+                }
 
-                let nextX = this.position[0] + moveDirX * moveAmount;
-                let nextZ = this.position[2] + moveDirZ * moveAmount;
+                let moveRad = this.currentAngleY * Math.PI / 180.0;
+                let moveX = Math.sin(moveRad) * this.moveSpeed * dt;
+                let moveZ = Math.cos(moveRad) * this.moveSpeed * dt;
+
+                let nextX = this.position[0] + moveX;
+                let nextZ = this.position[2] + moveZ;
                 
-                // Cek HANYA batas peta
                 if (Math.abs(nextX) > this.worldBounds || Math.abs(nextZ) > this.worldBounds) {
-                   // Nabrak batas, kembali jalan acak
                    this.animationState = "DYNAMIC_IDLE";
                 } else {
-                    // Aman dari batas, bergerak (boleh nabrak pohon)
                     this.position[0] = nextX;
                     this.position[2] = nextZ;
                 }
@@ -582,24 +632,24 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
             break;
 
         case "EATING":
-            if (this.stateTimer > 2.5) { 
+            this.updateEatingParticles(dt);
+            if (this.stateTimer > this.eatingDuration) { 
                 this.animationState = "LOVE_LOVE";
                 this.stateTimer = 0;
+                this.eatingParticles = []; 
             }
             break;
 
         case "LOVE_LOVE":
             this.updateLoveLove(nowSeconds, dt);
-            // [PERBAIKAN] Setelah selesai love, kembali ke jalan acak
-            if (this.animationState === "IDLE_STATIC") { // (updateLoveLove mengubah ini)
+            if (this.animationState === "IDLE_STATIC") { 
                 this.animationState = "DYNAMIC_IDLE";
             }
             break;
     }
     
     // =================================================================
-    // SISA FUNGSI UPDATE (PEMBUATAN BADAN & MATRIKS)
-    // (TIDAK BERUBAH - Sama seperti yang Anda berikan)
+    // PEMBUATAN BADAN & MATRIKS
     // =================================================================
     
     this.bodyData = createDragonairSmoothBody(
@@ -634,9 +684,10 @@ Dragonair.prototype.update = function(now, groundY, elapsed) {
         .scale(1.0, 1.0, 1.3);
 
     if (this.animationState === "EATING") {
-        let eatProgress = Math.min(1.0, this.stateTimer / 2.5); 
-        let eatAngle = -15 * Math.sin(eatProgress * Math.PI / 2); 
-        this.nodes.head.localMatrix.rotate(eatAngle, 1, 0, 0);
+        // [UPDATE] Animasi menunduk DIHAPUS. Ganti dengan mengunyah sederhana.
+        let eatProgress = this.stateTimer; 
+        let chewing = Math.sin(eatProgress * 10) * 5; // Derajat kecil saja
+        this.nodes.head.localMatrix.rotate(chewing, 1, 0, 0);
     }
 
     this.nodes.snout.localMatrix.setIdentity().translate(0, -0.3, 0.8).scale(1.0, 1.0, 1.3);
