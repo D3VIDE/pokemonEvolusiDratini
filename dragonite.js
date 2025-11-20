@@ -1,3 +1,4 @@
+//Setelah edit
 // =================================================================
 // dragonite.js
 // VERSI DENGAN PERBAIKAN URUTAN MATRIKS & BATAS JANGKAUAN
@@ -181,7 +182,7 @@ function Dragonite(gl, programInfo) {
   this.moveSpeed = 4.0;
   this.turnSpeed = 100.0;
 
-  this.baseFlyHeight = 8.0;
+  this.baseFlyHeight = 0;
   this.hoverAmplitude = 0.5;
   this.hoverFrequency = 2.0;
 
@@ -205,7 +206,26 @@ function Dragonite(gl, programInfo) {
   this.lastTailWagTime = 0;
   this.isWagging = false;
   this.tailWagStartTime = 0;
+
+  // --- VARIABEL ANIMASI MEMANJAT (BARU) ---
+  this.isClimbing = false;
+  this.climbTimer = 0;
+  this.startPosition = [0, 0, 0]; // Menyimpan posisi awal
 }
+
+Dragonite.prototype.startClimbing = function () {
+  if (this.isClimbing) return; // Jangan restart kalau sedang jalan
+  this.isClimbing = true;
+  this.climbTimer = 0;
+  // Simpan posisi saat ini sebagai titik start
+  this.startPosition = [this.position[0], this.position[1], this.position[2]];
+
+  // --- [BARU] SETUP VARIABEL API ---
+  this.isFiringPhase = false; // Apakah sudah sampai puncak & mulai nyembur?
+  this.fireCycleCount = 0; // Sudah berapa kali nyembur?
+  this.targetFireCount = 4;
+  this.fireLocalTimer = 0; // Timer khusus untuk durasi 1 semburan
+};
 
 /**
  * Membuat semua geometri statis, buffer, dan membangun scene graph
@@ -371,139 +391,126 @@ Dragonite.prototype.init = function () {
 };
 
 /**
- * Meng-update matriks lokal untuk animasi.
- * (Versi FSM yang sudah diperbaiki)
+ * Meng-update matriks lokal (VERSI STATIS / TANPA ANIMASI)
  */
 Dragonite.prototype.update = function (now, groundY, elapsed) {
   var gl = this.gl;
-  var programInfo = this.programInfo;
-  var dt = elapsed / 1000.0;
   var n = this.nodes;
+
+  // --- 1. SETUP VARIABEL (WAJIB) ---
+  var dt = elapsed / 1000.0;
   var nowSeconds = now / 1000.0;
-
   var desiredScale = 2.0;
-  this.stateTimer += dt;
-  let continuousFlapAngle = 0;
 
-  // ==================================================
-  // ** STATE MACHINE (FSM) LOGIC **
-  // ==================================================
+  // --- 2. HITUNG ANIMASI TAMBAHAN (Hover & Sayap) ---
 
-  switch (this.currentState) {
-    case "FLYING":
-      continuousFlapAngle = Math.sin(nowSeconds * 8.0) * 40.0;
-
-      let moveAmount = this.moveSpeed * dt;
-      let moveDirRad = (this.currentAngleY * Math.PI) / 180.0;
-      this.position[0] += Math.sin(moveDirRad) * moveAmount;
-      this.position[2] += Math.cos(moveDirRad) * moveAmount;
-
-      // PERUBAHAN BARU: Cek Jarak (Boundary Check)
-      let distFromCenter = Math.sqrt(this.position[0] * this.position[0] + this.position[2] * this.position[2]);
-      let forceTurn = false;
-
-      if (distFromCenter > this.maxRadius) {
-        forceTurn = true; // Paksa berputar jika terlalu jauh
-      }
-
-      // Transisi: Jika waktu terbang habis ATAU dipaksa berputar
-      if (this.stateTimer > this.flyDuration || forceTurn) {
-        this.currentState = "ROTATING";
-        this.stateTimer = 0;
-
-        if (forceTurn) {
-          // Putar balik ke arah titik tengah (0, 0)
-          this.targetAngleY = (Math.atan2(-this.position[0], -this.position[2]) * 180.0) / Math.PI;
-        } else {
-          // Putar acak
-          let randomTurn = Math.random() * 180.0 + 90.0;
-          this.targetAngleY = this.currentAngleY + randomTurn;
-        }
-        this.rotateDuration = Math.random() * 1.0 + 1.5; // Putar 1.5 - 2.5 detik
-      }
-      break;
-
-    case "ROTATING":
-      continuousFlapAngle = Math.sin(nowSeconds * 2.0) * 5.0; // Hover pelan
-
-      let angleDiff = this.targetAngleY - this.currentAngleY;
-      while (angleDiff > 180) angleDiff -= 360;
-      while (angleDiff < -180) angleDiff += 360;
-
-      let turnStep = this.turnSpeed * dt;
-      if (Math.abs(angleDiff) < turnStep) {
-        this.currentAngleY = this.targetAngleY;
-      } else {
-        this.currentAngleY += Math.sign(angleDiff) * turnStep;
-      }
-
-      if (this.stateTimer > this.rotateDuration) {
-        this.currentState = "FIRING";
-        this.stateTimer = 0;
-        this.isBreathingFire = true;
-        this.fireBreathStartTime = nowSeconds;
-      }
-      break;
-
-    case "FIRING":
-      continuousFlapAngle = Math.sin(nowSeconds * 2.0) * 5.0; // Hover pelan
-
-      if (this.stateTimer > this.fireBreathDuration) {
-        this.currentState = "FLYING";
-        this.stateTimer = 0;
-        this.isBreathingFire = false;
-        this.flyDuration = Math.random() * 3.0 + 4.0; // Terbang 4-7 detik
-      }
-      break;
-  }
-
-  // ==================================================
-  // ** LOGIKA ANIMASI KIBAS EKOR (IDLE) **
-  // ==================================================
-  if (nowSeconds - this.lastTailWagTime > this.tailWagInterval) {
-    this.isWagging = true;
-    this.tailWagStartTime = nowSeconds;
-    this.lastTailWagTime = nowSeconds;
-  }
+  // A. Sayap (Selalu mengepak)
+  let flapSpeed = 15.0;
+  let flapAmp = 20.0;
+  let continuousFlapAngle = Math.sin(nowSeconds * flapSpeed) * flapAmp;
   let wagAngle = 0;
-  if (this.isWagging) {
-    let wagElapsedTime = nowSeconds - this.tailWagStartTime;
-    if (wagElapsedTime > this.tailWagDuration) {
-      this.isWagging = false;
+
+  // B. Hover (Selalu naik turun sedikit)
+  let hoverFreq = 2.0;
+  let hoverAmp = 1;
+  let hoverOffset = Math.sin(nowSeconds * hoverFreq) * hoverAmp;
+
+  // C. Variabel Api
+  let isBreathingNow = false;
+  let fireAnimProgress = 0.0;
+
+  // ============================================================
+  // 3. LOGIKA MEMANJAT (MENGUBAH this.position)
+  // ============================================================
+  // Bagian ini yang menggerakkan koordinat asli Dragonite.
+  // Jika dia sedang manjat, this.position akan berubah drastis.
+
+  if (this.isClimbing) {
+    this.climbTimer += dt;
+
+    // Koordinat Gunung Kiri
+    let mountX = -50.0;
+    let mountZ = -70.0;
+    let mountY = 60.0;
+
+    if (this.climbTimer < 1.0) {
+      // FASE 1: PUTAR BADAN
+      let t = this.climbTimer / 1.0;
+      t = t * t * (3 - 2 * t);
+      this.currentAngleY = t * 210.0;
+    } else if (this.climbTimer < 4.5) {
+      // FASE 2: TERBANG KE PUNCAK (Disini Y berubah drastis)
+      let t = (this.climbTimer - 1.0) / 3.5;
+
+      // Interpolasi Posisi
+      this.position[0] = this.startPosition[0] + (mountX - this.startPosition[0]) * t;
+      this.position[1] = this.startPosition[1] + (mountY - this.startPosition[1]) * t;
+      this.position[2] = this.startPosition[2] + (mountZ - this.startPosition[2]) * t;
+
+      this.currentAngleY = 210.0;
+    } else if (this.climbTimer < 6.0) {
+      // FASE 3: PUTAR BALIK
+      let t = (this.climbTimer - 4.5) / 1.5;
+      t = t * t * (3 - 2 * t);
+      this.currentAngleY = 210.0 + t * (360.0 - 210.0);
+
+      // Kunci posisi di puncak
+      this.position[0] = mountX;
+      this.position[1] = mountY;
+      this.position[2] = mountZ;
+
+      // Reset Trigger Api
+      this.isFiringPhase = true;
+      this.fireLocalTimer = 0;
     } else {
-      let wagAnimProgress = wagElapsedTime / this.tailWagDuration;
-      wagAngle = Math.sin(wagAnimProgress * Math.PI * 4.0) * 30;
+      // FASE 4: SELEBRASI API
+      if (this.isFiringPhase) {
+        this.currentAngleY = 0;
+        // Auto-fix variabel
+        if (typeof this.fireCycleCount === "undefined") this.fireCycleCount = 0;
+        if (typeof this.targetFireCount === "undefined") this.targetFireCount = 4;
+
+        if (this.fireCycleCount < this.targetFireCount) {
+          this.fireLocalTimer += dt;
+          let durationPerBreath = 0.8;
+          if (this.fireLocalTimer < durationPerBreath) {
+            isBreathingNow = true;
+            fireAnimProgress = this.fireLocalTimer / durationPerBreath;
+          } else {
+            this.fireCycleCount++;
+            this.fireLocalTimer = 0;
+          }
+        } else {
+          this.isClimbing = false;
+          this.isFiringPhase = false;
+          this.fireCycleCount = 0;
+          console.log("Selebrasi Selesai!");
+        }
+      }
     }
   }
 
-  // ==================================================
-  // ** PERHITUNGAN POSISI & UPDATE MATRIKS **
-  // ==================================================
+  // ============================================================
+  // 4. PENERAPAN KE MATRIKS (VISUAL)
+  // ============================================================
 
-  // 1. Hitung Posisi Vertikal (Terbang + Hover)
-  var baseModelY = groundY - this.minY * desiredScale + 0.01 + this.baseFlyHeight;
-  let hoverOffset = Math.sin(nowSeconds * this.hoverFrequency) * this.hoverAmplitude;
-  let finalModelY = baseModelY + hoverOffset;
+  // [KUNCI PERBAIKAN DISINI]
+  // Kita ambil posisi Y asli (baik saat di tanah atau di gunung)
+  // LALU kita tambahkan efek hover hanya untuk visual.
+  // JANGAN menimpa this.position[1] dengan groundY!
 
-  // 2. Update Root (posisi global model)
-  //
-  // **PERBAIKAN KRUSIAL ADA DI SINI (URUTAN MATRIKS)**
-  // Urutan yang benar: Translasi (Posisi) -> Rotasi -> Skala
-  //
+  let finalModelY = this.position[1] + hoverOffset;
+
   this.rootNode.localMatrix
-    .setIdentity() // Mulai dari awal
-    .translate(this.position[0], finalModelY, this.position[2]) // 1. Pindah ke posisi dunia
-    .rotate(this.currentAngleY, 0, 1, 0) // 2. Putar di tempat
-    .scale(desiredScale, desiredScale, desiredScale); // 3. Skalakan di tempat
+    .setIdentity()
+    .translate(this.position[0], finalModelY, this.position[2]) // Gunakan finalModelY
+    .rotate(this.currentAngleY, 0, 1, 0)
+    .scale(desiredScale, desiredScale, desiredScale);
 
-  // 3. Update Body (relatif ke root)
+  // --- UPDATE BODY PARTS (Sama seperti biasa) ---
   n.body.localMatrix.setIdentity().translate(0, -1, 0);
-
-  // 4. Update Anak-anak Body
   n.belly.localMatrix.setIdentity().translate(0, -0.3, 0.45).scale(0.95, 0.9, 0.85);
   n.shoulder.localMatrix.setIdentity().translate(0, 0.6, 0.1);
-
-  // 5. Update Leher & Kepala
   n.neck.localMatrix.setIdentity().translate(0, 0.25, 0);
   n.neckTop.localMatrix.setIdentity().translate(0, 0.25, 0);
   n.headCyl.localMatrix.setIdentity().translate(0, 0.35, 0.05);
@@ -517,8 +524,6 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
   n.pupilL.localMatrix.setIdentity().translate(0, 0, 0.08);
   n.hornR.localMatrix.setIdentity().translate(0.2, 0.45, 0).rotate(-25, 0, 0, 1);
   n.hornL.localMatrix.setIdentity().translate(-0.2, 0.45, 0).rotate(25, 0, 0, 1);
-
-  // 6. Tangan
   n.armPoseR.localMatrix.setIdentity().translate(0.9, 0.3, 0.2).rotate(-30, 1, 0, 0).rotate(40, 0, 0, 1);
   n.armGeomR.localMatrix.setIdentity().scale(0.9, 1.5, 1.0);
   n.armJointR.localMatrix.setIdentity().translate(0, -0.9, 0);
@@ -534,8 +539,6 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
     let xOffset = (i - 1) * armClawSpacing;
     n.armClawsL[i].localMatrix.setIdentity().translate(xOffset, -0.3, 0.1).rotate(180, 1, 0, 0);
   }
-
-  // 7. Kaki
   n.legR.localMatrix.setIdentity().translate(0.6, -1.0, 0.1).rotate(10, 1, 0, 0);
   n.footBaseR.localMatrix.setIdentity().translate(0, -1, 0.3).rotate(-10, 1, 0, 0);
   var clawSpacing = 0.1;
@@ -550,21 +553,15 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
     n.footClawsL[i].localMatrix.setIdentity().translate(xOffset, -0.1, 0.4).rotate(90, 1, 0, 0).rotate(10, 1, 0, 0);
   }
 
-  // 8. Sayap (Gunakan continuousFlapAngle dari FSM)
   var wingOffsetY = 0.5;
   var wingOffsetZ = -0.1;
   var wingRotZ = 114;
   var wingRotY = -10;
   var wingRotX_base = -15;
-  var animatedWingRotX = wingRotX_base + continuousFlapAngle; // Terapkan animasi
-
+  var animatedWingRotX = wingRotX_base + continuousFlapAngle;
   n.wingR.localMatrix.setIdentity().translate(1.3, wingOffsetY, wingOffsetZ).rotate(wingRotZ, 0, 0, 1).rotate(wingRotY, 0, 1, 0).rotate(animatedWingRotX, 1, 0, 0);
-
   n.wingL.localMatrix.setIdentity().translate(-1.3, wingOffsetY, wingOffsetZ).rotate(-wingRotZ, 0, 0, 1).rotate(-wingRotY, 0, 1, 0).rotate(animatedWingRotX, 1, 0, 0);
-
-  // 9. Ekor (Gunakan wagAngle dari animasi idle)
   n.tailRoot.localMatrix.setIdentity().translate(0, -1.0, -0.2).rotate(wagAngle, 0, 1, 0).rotate(30, 1, 0, 0);
-
   var overlapDistance = this.tailSegmentLength * 0.3;
   var initialRadius = 0.35;
   var finalRadius = this.finalTailRadius;
@@ -579,21 +576,24 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
   }
   n.tailTip.localMatrix.setIdentity().translate(0, -0.1, 0);
 
-  // 10. Animasi Api
-  n.fireCone1.enabled = this.isBreathingFire;
-  n.fireCone2.enabled = this.isBreathingFire;
-  n.fireCone3.enabled = this.isBreathingFire;
-  n.fireBall1.enabled = this.isBreathingFire;
-  n.fireBall2.enabled = this.isBreathingFire;
-  n.smokeBall.enabled = this.isBreathingFire;
+  // ============================================================
+  // 5. VISUALISASI API
+  // ============================================================
+  n.fireCone1.enabled = isBreathingNow;
+  n.fireCone2.enabled = isBreathingNow;
+  n.fireCone3.enabled = isBreathingNow;
+  n.fireBall1.enabled = isBreathingNow;
+  n.fireBall2.enabled = isBreathingNow;
+  n.smokeBall.enabled = isBreathingNow;
 
-  if (this.isBreathingFire) {
-    let fireElapsedTime = now / 1000 - this.fireBreathStartTime;
-    let animProgress = fireElapsedTime / this.fireBreathDuration;
+  if (isBreathingNow) {
+    let animProgress = fireAnimProgress;
+
     let fireScaleFactor = Math.sin(animProgress * Math.PI) * 1.5;
     if (fireScaleFactor < 0) fireScaleFactor = 0;
-    let fireOffsetZ = 0.3 + animProgress * 1.5;
-    let fireOffsetY = -0.1 + Math.sin(animProgress * Math.PI * 2) * 0.1;
+
+    let fireOffsetZ = 1.0 + animProgress * 1.5;
+    let fireOffsetY = -0.2 + Math.sin(animProgress * Math.PI * 2) * 0.1;
 
     n.fire.localMatrix.setIdentity().translate(0, fireOffsetY, fireOffsetZ).rotate(-90, 1, 0, 0).scale(fireScaleFactor, fireScaleFactor, fireScaleFactor);
 
@@ -614,7 +614,6 @@ Dragonite.prototype.update = function (now, groundY, elapsed) {
     n.fire.localMatrix.setIdentity().scale(0, 0, 0);
   }
 };
-
 /**
  * Getter sederhana untuk mendapatkan node akar dari scene graph.
  */
