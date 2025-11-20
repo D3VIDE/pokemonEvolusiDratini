@@ -1,21 +1,8 @@
-// =================================================================
-// DRATINI_IN_DRAGONAIR_CLASS.JS - Dratini dengan struktur Dragonair
-// Gerakan Diubah Menjadi Angka 8 (Lemniscate)
-// DITAMBAH: Animasi Sirip Telinga dan EFEK BUBBLE AIR
-// =================================================================
-
-// Pastikan Anda telah menyertakan library 'cuon-matrix.js' di HTML Anda
-// ASUMSI: Class Matrix4 dari 'cuon-matrix.js' sudah tersedia secara global.
-
-// =================================================================
-// ASUMSI UTILITIES WEBGL (PLACEHOLDER)
-// =================================================================
-
-// ASUMSI: Implementasi dasar SceneNode
 function SceneNode(buffers) {
     this.buffers = buffers; // Buffer geometri (untuk drawPart)
     this.localMatrix = new Matrix4();
     this.children = [];
+    this.enabled = true; // Ditambahkan untuk kontrol Flamethrower
 }
 
 // ASUMSI: Fungsi WebGL utilities (HANYA PLACEHOLDER)
@@ -34,10 +21,10 @@ function initBuffers(gl, programInfo, geometryData) {
     if (!geometryData || !geometryData.indices) return null;
     return {
         // Hanya placeholder, aslinya ini adalah VBO, CBO, IBO, NBO
-        vertexBuffer: 'VBO_DUMMY', 
-        colorBuffer: 'CBO_DUMMY',
-        indexBuffer: 'IBO_DUMMY',
-        normalBuffer: 'NBO_DUMMY',
+        vbo: 'VBO_DUMMY', 
+        cbo: 'CBO_DUMMY',
+        ibo: 'IBO_DUMMY',
+        n: geometryData.indices.length,
         numIndices: geometryData.indices.length
     };
 }
@@ -74,9 +61,11 @@ function drawSceneGraph(node, gl, programInfo, currentMatrix) {
 var dratiniBlue = [0.65, 0.8, 0.95, 1.0]; // Biru Dratini yang lebih muda dan cerah
 var dratiniWhite = [1.0, 1.0, 1.0, 1.0];
 var dratiniEye = [0.4, 0.0, 0.6, 1.0]; 
+var fireOrange = [1.0, 0.5, 0.0, 1.0]; // Warna api
+var fireYellow = [1.0, 0.8, 0.0, 1.0]; // Warna tengah api
 
 // =================================================================
-// WARNA DAN GEOMETRI BARU UNTUK EFEK BUBBLE AIR
+// WARNA DAN GEOMETRI BARU UNTUK EFEK BUBBLE AIR & API
 // =================================================================
 var bubbleBlue = [0.1, 0.5, 0.9, 0.6]; // Biru transparan untuk gelembung
 var numBubbles = 50; // Jumlah gelembung yang akan digambar
@@ -124,6 +113,55 @@ function createSphere(radius, segments, rings, color) {
 
 function createBubbleSphere(radius, segments, rings, color) {
     return createSphere(radius, segments, rings, color); 
+}
+
+// [BARU] Geometri Api (Gabungan kerucut dan silinder bergelombang)
+function createFireGeometry(baseRadius, height, segments, colorOuter, colorInner) {
+    var vertices = [], colors = [], indices = [], normals = []; 
+    var center = [0, 0, 0];
+    var indexOffset = 0;
+
+    // Bagian Bawah (Kerucut / Cone)
+    var baseSegments = segments;
+    var tip = [0, height, 0];
+    
+    // Titik pusat alas (index 0)
+    vertices.push(center[0], center[1], center[2]);
+    colors.push(colorInner[0], colorInner[1], colorInner[2], 1.0);
+    indexOffset++;
+
+    // Lingkaran alas
+    for (let i = 0; i <= baseSegments; i++) {
+        let angle = (i / baseSegments) * Math.PI * 2;
+        let x = baseRadius * Math.cos(angle);
+        let z = baseRadius * Math.sin(angle);
+        
+        vertices.push(x, 0, z);
+        colors.push(colorOuter[0], colorOuter[1], colorOuter[2], 1.0);
+    }
+    // Index alas
+    for (let i = 0; i < baseSegments; i++) {
+        indices.push(0, indexOffset + i, indexOffset + i + 1);
+    }
+    indexOffset += baseSegments + 1;
+
+    // Titik puncak (index akhir)
+    vertices.push(tip[0], tip[1], tip[2]);
+    colors.push(colorInner[0], colorInner[1], colorInner[2], 1.0);
+    var tipIndex = indexOffset;
+    indexOffset++;
+
+    // Sisi Kerucut
+    var baseStartIndex = tipIndex - baseSegments - 1;
+    for (let i = 0; i < baseSegments; i++) {
+        indices.push(tipIndex, baseStartIndex + i, baseStartIndex + i + 1);
+    }
+
+    return { 
+        vertices: new Float32Array(vertices), 
+        colors: new Float32Array(colors), 
+        indices: new Uint16Array(indices) 
+    };
 }
 
 function createEllipticParaboloid(a, b, c, segments, rings, color) {
@@ -180,25 +218,28 @@ function createEllipticParaboloid(a, b, c, segments, rings, color) {
     };
 }
 
-// =================================================================
-// FUNGSI GEOMETRI BADAN (Modifikasi dari Dragonair)
-// =================================================================
-
-function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle) {
-    var vertices = [];
-    var colors = [];
-    var indices = [];
-    var ringSegments = 16;
-    var spineMatrices = [];
-    var currentSpineMatrix = new Matrix4();
+// [MODIFIED] Menambahkan parameter untuk menghentikan animasi S-Curve
+function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius, endRadius, currentAngle, isStatic, tackleProgress) {
+    var vertices = [], colors = [], indices = [], ringSegments = 16;
+    var spineMatrices = [], currentSpineMatrix = new Matrix4();
 
     currentSpineMatrix.translate(0, 0.5, 0); //y untuk kepala
     spineMatrices.push(new Matrix4(currentSpineMatrix));
 
-    let headLiftAngle = -15.0; 
-    let s_curve_amplitude = 12.0; 
+    let headLiftAngle = isStatic ? -5.0 : -15.0; // Lebih datar saat Flamethrower
+    let s_curve_amplitude = isStatic ? 0.0 : 12.0; // Amplitude 0 saat diam
     let s_curve_freq = 2.5;
     let time = currentAngle * 0.004;
+    
+    // Tackle: Rotasi badan saat memukul
+    let bodyRotX = 0;
+    if (tackleProgress > 0) {
+        // Melompat ke depan (miringkan badan)
+        bodyRotX = -35 * Math.sin(tackleProgress * Math.PI); // Mulai 0, Max 35 deg, End 0
+    }
+
+    // Terapkan rotasi tackle ke Root Spine
+    currentSpineMatrix.rotate(bodyRotX, 1, 0, 0); 
 
     for (let i = 0; i < segments; i++) { 
         let p = i / (segments - 1); 
@@ -207,7 +248,6 @@ function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius
     
         angleY_deg = s_curve_amplitude * Math.sin(p * Math.PI * s_curve_freq + time);
         
-        // Pergerakan vertikal tubuh
         let neckEnd = 0.3; 
         let bodyFlat = 0.6; 
 
@@ -216,6 +256,15 @@ function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius
         } else if (p < bodyFlat) {
             let p_down = (p - neckEnd) / (bodyFlat - neckEnd);
             angleX_deg = -headLiftAngle * (1.0 - p_down);
+        }
+        
+        // Tackle: Pukulan Ekor
+        let tailSegmentStart = 0.7;
+        if (tackleProgress > 0 && p > tailSegmentStart) {
+            // Segmen ekor memukul ke depan (Z negatif)
+            let tailProgress = (p - tailSegmentStart) / (1.0 - tailSegmentStart);
+            // Ekor mencambuk ke depan (Z)
+            angleX_deg += 50 * Math.sin(tackleProgress * Math.PI) * tailProgress; 
         }
 
         currentSpineMatrix.rotate(angleY_deg, 0, 1, 0); 
@@ -289,12 +338,14 @@ function createDratiniSmoothBody(segments, segmentLength, startRadius, maxRadius
         finalSpineMatrix: finalMatrix,
         neckAttachMatrix: neckAttachMatrix,
         minY: minY,
-        firstSpinePos: firstSpinePos
+        firstSpinePos: firstSpinePos,
+        // Kita juga perlu mengembalikan matriks ekor
+        tailMatrix: spineMatrices[spineMatrices.length - 2] || new Matrix4() 
     };
 }
 
 // =================================================================
-// CLASS DRATINI (Menggunakan struktur Dragonair dengan fitur wajah Dratini)
+// CLASS DRATINI 
 // =================================================================
 
 function DratiniModel(gl, programInfo) {
@@ -322,9 +373,10 @@ function DratiniModel(gl, programInfo) {
     this.radiusZ = 10.0;
     this.angularSpeed = 0.0005;
     this.waveAnimPhase = 0.0;
+    this.currentYOffset = 0.0; // Offset Y untuk lompatan Tackle
 
     // ************************************************************
-    // VARIABEL ANIMASI BUBBLE & SIRIP
+    // VARIABEL ANIMASI BUBBLE, SIRIP, FLAMETHROWER & TACKLE
     // ************************************************************
     this.finAnimPhase = 0.0; 
     this.finAmplitude = 5.0; 
@@ -333,6 +385,13 @@ function DratiniModel(gl, programInfo) {
     this.waterDuration = 1000;
     this.waterActive = false;
     
+    // Status Animasi Skill
+    this.animationState = 'IDLE'; // IDLE, FLAMETHROWER_PREP, FLAMETHROWER, TACKLE
+    this.stateTimer = 0.0;
+    this.prepDuration = 500; // 0.5 detik bersiap
+    this.flameDuration = 1200; // 1.2 detik semburan
+    this.tackleDuration = 1000; // 1.0 detik tackle
+
     // VARIABEL BUBBLE BARU
     this.bubbleParticles = []; 
     for (let i = 0; i < numBubbles; i++) {
@@ -363,9 +422,11 @@ DratiniModel.prototype.init = function() {
     var foreheadDotGeo = createSphere(0.08, 6, 6, dratiniWhite);
 
     // ************************************************************
-    // GEOMETRI BUBBLE BARU
+    // GEOMETRI BUBBLE & FIRE BARU
     // ************************************************************
     var bubbleGeo = createBubbleSphere(1.0, 8, 8, bubbleBlue);
+    // Kerucut api untuk Flamethrower
+    var flameGeo = createFireGeometry(1.0, 5.0, 16, fireOrange, fireYellow); 
     // ************************************************************
 
     // 2. Inisialisasi Buffer Statis
@@ -376,9 +437,10 @@ DratiniModel.prototype.init = function() {
     var foreheadDotBuffers = initBuffers(gl, programInfo, foreheadDotGeo);
 
     // ************************************************************
-    // BUFFER BUBBLE BARU
+    // BUFFER BUBBLE & FIRE BARU
     // ************************************************************
     this.nodes.bubbleBuffers = initBuffers(gl, programInfo, bubbleGeo); 
+    this.nodes.flameBuffers = initBuffers(gl, programInfo, flameGeo);
     // ************************************************************
 
     // 3. Bangun Scene Graph
@@ -421,12 +483,40 @@ DratiniModel.prototype.init = function() {
     this.nodes.head.children.push(this.nodes.eyeR);
     
     // ************************************************************
-    // NODE CONTAINER BUBBLE BARU - Anak dari Head
+    // NODE CONTAINER BUBBLE & FLAMETHROWER
     // ************************************************************
     this.nodes.bubbleContainer = new SceneNode(null); // Node dummy
     this.nodes.head.children.push(this.nodes.bubbleContainer);
+    
+    this.nodes.flamethrower = new SceneNode(this.nodes.flameBuffers);
+    this.nodes.flamethrower.enabled = false; // Mulai nonaktif
+    this.nodes.head.children.push(this.nodes.flamethrower);
     // ************************************************************
 };
+
+// =================================================================
+// SKILL TRIGGERS
+// =================================================================
+
+DratiniModel.prototype.startFlamethrower = function() {
+    if (this.animationState === 'IDLE' || this.animationState === 'FLAMETHROWER_PREP') {
+        this.animationState = 'FLAMETHROWER_PREP';
+        this.stateTimer = 0.0;
+        console.log("Dratini mulai persiapan Flamethrower...");
+    }
+};
+
+DratiniModel.prototype.startTackle = function() {
+    if (this.animationState === 'IDLE') {
+        this.animationState = 'TACKLE';
+        this.stateTimer = 0.0;
+        console.log("Dratini melancarkan Tackle!");
+    }
+};
+
+// =================================================================
+// UPDATE LOGIC
+// =================================================================
 
 DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
     var gl = this.gl;
@@ -434,92 +524,138 @@ DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
     var dt = elapsed / 1000.0;
     var groundY = waterLevelY || 0;
     
-    // --- 1. Update Posisi dan Rotasi untuk Gerakan Angka 8 (Lemniscate) ---
-    this.currentAngle += this.angularSpeed * elapsed;
-    this.currentAngle %= (2 * Math.PI);
-
-    var angleX = 2 * this.currentAngle;
-    var angleZ = this.currentAngle;
-
-    var newX = this.radiusX * Math.cos(angleX);
-    var newZ = this.radiusZ * Math.sin(angleZ);
-
-    this.position[0] = newX;
-    this.position[2] = newZ;
-
-    var dX_dt = -this.radiusX * Math.sin(angleX) * 2;
-    var dZ_dt = this.radiusZ * Math.cos(angleZ);
+    // Angka 8 movement control
+    let isMoving = (this.animationState === 'IDLE');
+    let isStatic = (this.animationState !== 'IDLE');
+    let tackleProgress = 0.0;
     
-    this.globalRotationY = Math.atan2(dX_dt, dZ_dt) * 180 / Math.PI;
-    
-    // --- 2. ANIMASI: Sirip & Bubble Air ---
-    this.waveAnimPhase = (this.waveAnimPhase + dt * 100) % 360;
+    // --- 1. Update State Timer ---
+    if (isStatic) {
+        this.stateTimer += elapsed;
+    }
 
-    // LOGIKA ANIMASI SIRIP
-    this.finAnimPhase = (this.finAnimPhase + dt * 1500) % 360; 
-    var finAngle = this.finAmplitude * Math.sin(this.finAnimPhase * Math.PI / 180.0);
+    // --- 2. Update Posisi dan Rotasi Global (Hanya saat IDLE) ---
+    if (isMoving) {
+        this.currentAngle += this.angularSpeed * elapsed;
+        this.currentAngle %= (2 * Math.PI);
 
-    // ************************************************************
-    // LOGIKA ANIMASI SEMBURAN BUBBLE BARU
-    // ************************************************************
-    this.waterAnimPhase += elapsed; 
-    
-    if (this.waterAnimPhase > 4000) { // Semburan dimulai setiap 4 detik
-        this.waterActive = true;
-        this.waterAnimPhase = this.waterAnimPhase % 4000;
+        var angleX = 2 * this.currentAngle;
+        var angleZ = this.currentAngle;
+
+        var newX = this.radiusX * Math.cos(angleX);
+        var newZ = this.radiusZ * Math.sin(angleZ);
+
+        this.position[0] = newX;
+        this.position[2] = newZ;
+
+        var dX_dt = -this.radiusX * Math.sin(angleX) * 2;
+        var dZ_dt = this.radiusZ * Math.cos(angleZ);
         
-        // Reset posisi gelembung saat semburan dimulai
-        this.bubbleParticles.forEach(p => {
-            p.x = (Math.random() - 0.5) * 0.5; 
-            p.y = (Math.random() - 0.5) * 0.5;
-            p.z = (Math.random() - 0.5) * 0.5;
-            p.life = 0;
-            p.speedZ = 2.0 + Math.random() * 3.0; 
-            p.scale = 0.1 + Math.random() * (bubbleMaxRadius - 0.1);
-        });
-    } else if (this.waterAnimPhase > this.waterDuration) {
-        this.waterActive = false;
+        this.globalRotationY = Math.atan2(dX_dt, dZ_dt) * 180 / Math.PI;
     }
     
-    if (this.waterActive) {
-        // Hapus node gelembung lama, akan diganti dengan yang baru
-        this.nodes.bubbleContainer.children = [];
-        
-        // Update dan buat node gelembung baru
-        this.bubbleParticles.forEach(p => {
-            if (p.life < p.maxLife) {
-                p.life += elapsed;
-                let lifeProgress = p.life / p.maxLife;
+    // --- 3. LOGIKA STATE ANIMASI ---
+    var headShake = 0.0;
+    var windWave = 0.0;
+    
+    if (isMoving) {
+        this.waveAnimPhase = (this.waveAnimPhase + dt * 100) % 360;
+    }
 
-                // Gerakan gelembung (maju di sumbu Z lokal, kecepatan berkurang)
-                let zTravel = (p.speedZ * dt) * (1.0 - lifeProgress);
-                p.z += zTravel;
-                p.x += (Math.random() - 0.5) * 0.05 * dt * 10; // Dispersi X
-                p.y += (Math.random() - 0.5) * 0.05 * dt * 10; // Dispersi Y
-
-                // Skala gelembung (mengecil mendekati akhir)
-                let scaleFactor = p.scale * (1.0 - Math.pow(lifeProgress, 2));
-                scaleFactor = Math.max(0.0, scaleFactor);
-
-                if (scaleFactor > 0.01) {
-                    let bubbleNode = new SceneNode(this.nodes.bubbleBuffers);
-                    bubbleNode.localMatrix.setIdentity()
-                        .translate(p.x, p.y, p.z)
-                        .scale(scaleFactor, scaleFactor, scaleFactor);
-                    this.nodes.bubbleContainer.children.push(bubbleNode);
-                }
+    switch (this.animationState) {
+        case 'IDLE':
+            this.nodes.flamethrower.enabled = false;
+            // Bubble Semburan Otomatis (Hanya saat IDLE)
+            this.waterAnimPhase += elapsed; 
+            if (this.waterAnimPhase > 4000) { 
+                this.waterActive = true;
+                this.waterAnimPhase = this.waterAnimPhase % 4000;
+                this.bubbleParticles.forEach(p => {
+                    p.x = (Math.random() - 0.5) * 0.5; 
+                    p.y = (Math.random() - 0.5) * 0.5;
+                    p.z = (Math.random() - 0.5) * 0.5;
+                    p.life = 0;
+                    p.speedZ = 2.0 + Math.random() * 3.0; 
+                    p.scale = 0.1 + Math.random() * (bubbleMaxRadius - 0.1);
+                });
+            } else if (this.waterAnimPhase > this.waterDuration) {
+                this.waterActive = false;
             }
-        });
-    } else {
-        // Kosongkan container saat tidak aktif
-        this.nodes.bubbleContainer.children = [];
+            this.currentYOffset = 0;
+            break;
+            
+        case 'FLAMETHROWER_PREP':
+            this.nodes.flamethrower.enabled = false;
+            this.waterActive = false;
+            
+            if (this.stateTimer < this.prepDuration) {
+                // Goyangan persiapan (Kepala mundur dan bergetar)
+                let prepTime = this.stateTimer / this.prepDuration;
+                headShake = 0.5 * Math.sin(prepTime * 50); 
+                this.currentYOffset = -1.5 * prepTime; 
+                windWave = 20.0 * prepTime; // Sirip bergetar cepat
+            } else {
+                this.animationState = 'FLAMETHROWER';
+                this.stateTimer = 0.0;
+            }
+            break;
+            
+        case 'FLAMETHROWER':
+            this.nodes.flamethrower.enabled = true; // Aktifkan api
+            
+            if (this.stateTimer < this.flameDuration) {
+                let progress = this.stateTimer / this.flameDuration;
+                
+                // Api bergetar (Horizontal Flamethrower)
+                let flameRotX = 5 * Math.sin(this.stateTimer * 50);
+                this.nodes.flamethrower.localMatrix.setIdentity()
+                    // TRANSLASI: Maju ke moncong (Z) dan sedikit naik (Y)
+                    .translate(0, 0.1, 1.2)
+                    .rotate(90, 1, 0, 0) 
+                    .rotate(flameRotX, 0, 1, 0) // Goyangan api (Rotasi ringan Y)
+                    .scale(3.0, 3.0, 3.0); // Api besar
+
+                windWave = 10.0; // Sirip statis karena dorongan
+                headShake = 0.08 * Math.sin(this.stateTimer * 100); 
+                this.currentYOffset = 0;
+
+            } else {
+                this.animationState = 'IDLE';
+                this.stateTimer = 0.0;
+                this.nodes.flamethrower.enabled = false;
+                console.log("Dratini: Flamethrower selesai!");
+            }
+            break;
+            
+        case 'TACKLE':
+            this.nodes.flamethrower.enabled = false;
+            this.waterActive = false;
+            if (this.stateTimer < this.tackleDuration) {
+                tackleProgress = this.stateTimer / this.tackleDuration;
+                
+                // Lompatan Y (parabola)
+                let jumpHeight = 5.0;
+                this.currentYOffset = jumpHeight * Math.sin(tackleProgress * Math.PI);
+                
+                windWave = 0.0;
+                headShake = 0.0;
+            } else {
+                this.animationState = 'IDLE';
+                this.stateTimer = 0.0;
+                tackleProgress = 0.0;
+                this.currentYOffset = 0;
+            }
+            break;
     }
-    // ************************************************************
     
-    // Buat ulang tubuh 
+    // --- 3. Animasi Sirip dan Body ---
+    this.finAnimPhase = (this.finAnimPhase + dt * 1500) % 360; 
+    var finAngle = (this.finAmplitude + windWave) * Math.sin(this.finAnimPhase * Math.PI / 180.0);
+
+    // Buat ulang tubuh (tergantung apakah sedang diam atau bergerak/tackle)
     this.bodyData = createDratiniSmoothBody(
         this.bodySegmentsCount, this.segmentLength, this.startRadius, 
-        this.maxRadius, this.endRadius, this.waveAnimPhase
+        this.maxRadius, this.endRadius, this.waveAnimPhase, isStatic, tackleProgress
     );
 
     if (!this.bodyData) { console.error("Gagal membuat bodyData"); return; }
@@ -527,15 +663,13 @@ DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
     this.bodyBuffers = initBuffers(gl, programInfo, this.bodyData);
     if (!this.bodyBuffers) { console.error("Gagal init bodyBuffers"); return; }
     
-    var groundY = 0; 
-    if (this.bodyData.minY === undefined) { console.error("bodyData.minY tidak terdefinisi!"); return; }
     var modelGroundY = groundY - this.bodyData.minY + 0.01;
 
-    // --- 3. Update Matriks Lokal di Scene Graph ---
+    // --- 4. Update Matriks Lokal di Scene Graph ---
     
-    // 1. Update Root (rotasi dan posisi global)
+    // 1. Update Root (rotasi dan posisi global + offset lompatan)
     this.rootNode.localMatrix.setIdentity()
-        .translate(this.position[0], modelGroundY, this.position[2])
+        .translate(this.position[0], modelGroundY + this.currentYOffset, this.position[2])
         .rotate(this.globalRotationY, 0, 1, 0);
 
     // 2. Update Body (buffer baru)
@@ -547,7 +681,7 @@ DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
     const headBaseScaleZ = 1.3; 
     
     this.nodes.head.localMatrix.setIdentity()
-        .translate(0, this.startRadius, 0) 
+        .translate(headShake, this.startRadius, 0) // Head shake applied
         .scale(overallScaleFactor, overallScaleFactor, headBaseScaleZ * overallScaleFactor); 
 
     const currentHeadScaleFactor = overallScaleFactor; 
@@ -564,7 +698,7 @@ DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
         .translate(0, 0.8, 0.5) 
         .scale(1.0, 1.0, 1.0);
 
-    // --- KODE TELINGA (DITAMBAH ANIMASI GETAR) ---
+    // --- KODE TELINGA (SIRIP) ---
     const earMagnificationFactor_TOP = 4.0; 
     const earMagnificationFactor_MIDDLE = 4.0; 
     const earMagnificationFactor_BOTTOM = 4.0; 
@@ -635,73 +769,48 @@ DratiniModel.prototype.update = function(elapsed, worldBounds,waterLevelY) {
         .scale(1.0, 1.2, 0.5);
 
     // ************************************************************
-    // UPDATE NODE BUBBLE CONTAINER (RELATIF KE KEPALA)
+    // UPDATE NODE BUBBLE CONTAINER
     // ************************************************************
+    
+    if (this.waterActive) {
+        // Hapus node gelembung lama, akan diganti dengan yang baru
+        this.nodes.bubbleContainer.children = [];
+        
+        // Update dan buat node gelembung baru
+        this.bubbleParticles.forEach(p => {
+            if (p.life < p.maxLife) {
+                p.life += elapsed;
+                let lifeProgress = p.life / p.maxLife;
+
+                // Gerakan gelembung (maju di sumbu Z lokal, kecepatan berkurang)
+                let zTravel = (p.speedZ * dt) * (1.0 - lifeProgress);
+                p.z += zTravel;
+                p.x += (Math.random() - 0.5) * 0.05 * dt * 10; // Dispersi X
+                p.y += (Math.random() - 0.5) * 0.05 * dt * 10; // Dispersi Y
+
+                // Skala gelembung (mengecil mendekati akhir)
+                let scaleFactor = p.scale * (1.0 - Math.pow(lifeProgress, 2));
+                scaleFactor = Math.max(0.0, scaleFactor);
+
+                if (scaleFactor > 0.01) {
+                    let bubbleNode = new SceneNode(this.nodes.bubbleBuffers);
+                    bubbleNode.localMatrix.setIdentity()
+                        .translate(p.x, p.y, p.z)
+                        .scale(scaleFactor, scaleFactor, scaleFactor);
+                    this.nodes.bubbleContainer.children.push(bubbleNode);
+                }
+            }
+        });
+    } else {
+        // Kosongkan container saat tidak aktif
+        this.nodes.bubbleContainer.children = [];
+    }
+    
     this.nodes.bubbleContainer.localMatrix.setIdentity()
         .translate(0, -0.3, 1.2); 
-    // Transformasi untuk setiap gelembung individu sudah dihitung di atas.
     // ************************************************************
 };
 
 DratiniModel.prototype.getRootNode = function() {
     return this.rootNode;
 };
-
-// =================================================================
-// FUNGSI UTAMA (MAIN)
-// =================================================================
-
-function main() {
-    console.log("Memulai inisialisasi Dratini 3D (Hybrid Version) dengan gerakan Angka 8, Sirip, dan BUBBLE AIR...");
-    
-    // ASUMSI: Matriks tampilan dan proyeksi global didefinisikan di tempat lain
-    var viewMatrix = new Matrix4().setLookAt(0, 10, 20, 0, 0, 0, 0, 1, 0); 
-    var projMatrix = new Matrix4().setPerspective(30, 1, 1, 100);
-    var worldMatrix = new Matrix4(); // Matriks global
-
-    if (!window.Matrix4) {
-         console.error("Kesalahan: 'cuon-matrix.js' tidak dimuat. Matrix4 tidak terdefinisi.");
-         return;
-    }
-
-    var dratini = new DratiniModel(gl, programInfo);
-    try {
-        dratini.init(); 
-    } catch (e) {
-        console.error("Gagal inisialisasi Dratini.", e);
-        return;
-    }
-
-    console.log("Dratini model hybrid berhasil diinisialisasi. Bubbles aktif!");
-
-    var g_last = Date.now();
-    
-    var tick = function() {
-        var now = Date.now();
-        var elapsed = now - g_last;
-        g_last = now;
-        
-        // Update state Dratini
-        dratini.update(elapsed, 0);
-
-        // Rendering (DIHILANGKAN - Ganti dengan fungsi render WebGL Anda)
-        // Jika menggunakan WebGL:
-        // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        // var mvpMatrix = new Matrix4(projMatrix).multiply(viewMatrix);
-        // drawSceneGraph(dratini.getRootNode(), gl, programInfo, mvpMatrix);
-        
-        // Output dummy untuk debugging
-        if (dratini.nodes.bubbleContainer.children.length > 0 && dratini.waterActive) {
-             console.log("Debug: Bubbles aktif. Jumlah node:", dratini.nodes.bubbleContainer.children.length);
-        }
-
-        requestAnimationFrame(tick); 
-    };
-
-    tick();
-    console.log("Animasi Dratini (Hybrid Version) berjalan!");
-}
-
-// Catatan: Hapus tanda // di depan 'main()' untuk menjalankan, setelah memastikan
-// semua dependensi WebGL (cuon-matrix.js, gl, programInfo, drawSceneGraph) dimuat.
-// main();

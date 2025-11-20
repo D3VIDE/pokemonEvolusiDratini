@@ -34,6 +34,9 @@
         text-align: center;
         z-index: 1000;
       }
+      #input-overlay p {
+        margin: 5px 0;
+      }
       #input-text {
         width: 50px;
         padding: 5px;
@@ -47,11 +50,47 @@
         font-weight: bold;
         color: yellow;
       }
+      .key {
+        display: inline-block;
+        background: #444;
+        border: 1px solid #777;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-family: monospace;
+        font-weight: bold;
+        color: #fff;
+      }
     </style>
   </head>
   <body onload="main()">
     <canvas id="webgl"> Browser Anda tidak mendukung HTML5 canvas. </canvas>
 
+    <!-- UI Overlay dengan instruksi baru -->
+    <div id="input-overlay">
+        <p>
+            Kontrol Kamera Biasa (<span class="key">W, A, S, D, Shift, Spasi</span>) | Jarak (<span class="key">Scroll</span>)
+        </p>
+        <hr style="border-color: #555; margin: 5px 0;">
+        <p>
+            <span class="key">1</span>: POV Dratini (Samping) | 
+            <span class="key">2</span>: POV Dragonair | 
+            <span class="key">3</span>: POV Dragonite
+        </p>
+        <p>
+            <span class="key">E</span>: Dratini <span style="color: red;">FLAMETHROWER</span> (Cinematic Zoom)!
+        </p>
+        <p>
+            <span class="key">T</span>: Dratini <span style="color: yellow;">TACKLE</span> (Lompat Ekor)!
+        </p>
+        <p>
+            <span class="key">R</span>: Toggle Dragonite <span style="color: cyan;">Climbing</span>
+        </p>
+        <p>
+            <span class="key">F</span>: Dragonair <span style="color: orange;">Drop Fruit</span> | 
+            <span class="key">P</span>: Pause
+        </p>
+        <p id="status"></p>
+    </div>
 
 
     <script id="shader-vs" type="x-shader/x-vertex">

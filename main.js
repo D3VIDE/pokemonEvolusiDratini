@@ -1,33 +1,37 @@
-// =================================================================
-// main.js (FINAL: Smooth Camera Transition - No Jump after Eating)
-// =================================================================
-
 var groundGreen = [0.4, 0.8, 0.4, 1.0];
 var earWhite = [0.9, 0.9, 1.0, 1.0];
 var crystalBlue = [0.23, 0.3, 0.79, 1.0];
 var SKY_COLOR = [0.53, 0.81, 0.92, 1.0];
 var GROUND_Y = -3.5;
 
+// [MODIFIED] Konstanta Kamera Dratini
+const DRATINI_SIDE_DIST = 20.0; // Jarak standar POV samping Dratini (Diperbanyak)
+const DRATINI_SIDE_HEIGHT = 5.0; 
+const DRATINI_FLAME_ZOOM_OUT_DIST = 50.0; // Jarak maksimum saat zoom-out (Diperbanyak)
+
 function SceneNode(buffers, localMatrix) {
   this.buffers = buffers;
   this.localMatrix = localMatrix || new Matrix4();
   this.worldMatrix = new Matrix4();
   this.children = [];
+  this.enabled = true; // Ditambahkan untuk kontrol Flamethrower/lainnya
 }
 
 function drawSceneGraph(gl, programInfo, node, parentWorldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers) {
   node.worldMatrix.set(parentWorldMatrix).multiply(node.localMatrix);
-  if (node.buffers) {
-    if (node.enabled !== false) {
-      drawPart(gl, programInfo, node.buffers, node.worldMatrix, viewMatrix, projMatrix, mvpMatrix);
-    }
-  }
-  if (oriPointBuffers) {
-    var oriMatrix = new Matrix4(node.worldMatrix).scale(0.5, 0.5, 0.5);
-    drawPart(gl, programInfo, oriPointBuffers, oriMatrix, viewMatrix, projMatrix, mvpMatrix);
-  }
-  for (var i = 0; i < node.children.length; i++) {
-    drawSceneGraph(gl, programInfo, node.children[i], node.worldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
+  
+  // Hanya gambar jika node di-enable
+  if (node.enabled !== false) {
+      if (node.buffers) {
+        drawPart(gl, programInfo, node.buffers, node.worldMatrix, viewMatrix, projMatrix, mvpMatrix);
+      }
+      if (oriPointBuffers) {
+        var oriMatrix = new Matrix4(node.worldMatrix).scale(0.5, 0.5, 0.5);
+        drawPart(gl, programInfo, oriPointBuffers, oriMatrix, viewMatrix, projMatrix, mvpMatrix);
+      }
+      for (var i = 0; i < node.children.length; i++) {
+        drawSceneGraph(gl, programInfo, node.children[i], node.worldMatrix, viewMatrix, projMatrix, mvpMatrix, oriPointBuffers);
+      }
   }
 }
 
@@ -78,6 +82,7 @@ function main() {
 
   window.myWorld = myWorld;
   window.myDragonair = myDragonair;
+  window.myDratini = myDratini; // Buat global untuk akses di console
 
   myDragonair.setObstacles(myWorld.obstacles);
 
@@ -100,11 +105,16 @@ function main() {
   let isEatingCamActive = false;
   let isFruitCamActive = false;
   let isDragonairPovActive = false;
+  
+  // [BARU] Variabel Kamera Khusus
+  let isDratiniPovActive = false;
+  let isDragonitePovActive = false;
+  let isDratiniSkillCamActive = false; // BARU: Untuk Cinematic Flamethrower/Tackle
 
-  // --- VARIABEL CINEMATIC (Bisa untuk siapa saja) ---
+  // --- VARIABEL CINEMATIC ---
   let isCinematicActive = false;
   let cinematicAngle = 0;
-  let cinematicTargetObj = null; // <-- Ini kuncinya! Variabel kosong untuk menampung target
+  let cinematicTargetObj = null;
 
   let isPaused = false;
 
@@ -121,6 +131,18 @@ function main() {
   // Variabel Timer Kamera Awal
   let cameraStartTimer = 0.0;
   let animationTimerID = null;
+  
+  // Fungsi Reset Kamera POV
+  function resetCameraPov() {
+      isDragonairPovActive = false;
+      isDratiniPovActive = false;
+      isDragonitePovActive = false;
+      isEatingCamActive = false;
+      isFruitCamActive = false;
+      isCinematicActive = false;
+      isPaused = false;
+      isDratiniSkillCamActive = false; // BARU: Reset skill cam
+  }
 
   function updateCamera() {
     let radX = (cameraAngleX * Math.PI) / 180.0;
@@ -150,8 +172,7 @@ function main() {
     isDragging = false;
   };
   canvas.onmousemove = function (ev) {
-    // Block mouse saat animasi makan/love agar tidak fight dengan auto-camera
-    if (((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused) || isFruitCamActive || isDragonairPovActive) return;
+    if ((isEatingCamActive || isFruitCamActive || isDragonairPovActive || isDratiniPovActive || isDragonitePovActive || isCinematicActive || isDratiniSkillCamActive) && !isPaused) return;
 
     if (!isDragging) return;
     let x = ev.clientX,
@@ -166,7 +187,7 @@ function main() {
     updateCamera();
   };
   canvas.onwheel = function (ev) {
-    if (((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused) || isFruitCamActive || isDragonairPovActive) return;
+    if ((isEatingCamActive || isFruitCamActive || isDragonairPovActive || isDratiniPovActive || isDragonitePovActive || isCinematicActive || isDratiniSkillCamActive) && !isPaused) return;
     ev.preventDefault();
     let zoomSensitivity = 0.05;
     cameraDistance += ev.deltaY * zoomSensitivity;
@@ -178,81 +199,127 @@ function main() {
     let key = ev.key.toLowerCase();
     keysPressed[key] = true;
 
-    if (key === "1") {
+    // Tombol P untuk Pause/Unpause
+    if (key === "p") {
       isPaused = !isPaused;
       console.log("Freeze Mode:", isPaused);
+      return; // Jangan jalankan aksi lain saat tombol P
+    }
+    
+    // =================================================================
+    // NEW CAMERA SHORTCUTS (1, 2, 3)
+    // =================================================================
+    if (key === "1") {
+      resetCameraPov();
+      isDratiniPovActive = true;
+      console.log("Kamera POV: Dratini (Samping)");
     }
 
     if (key === "2") {
-      currentScenario = "DRAGONAIR_ANIMATION";
-      if (animationTimerID) clearTimeout(animationTimerID);
-
-      isTransitioningCamera = false;
-      isEatingCamActive = false;
-      isFruitCamActive = false;
-      isDragonairPovActive = false;
-      isPaused = false;
-
-      let targetTree = myWorld.allTrees.find((t) => Math.abs(t.position[0] - 60) < 1.0 && Math.abs(t.position[2] - 50) < 1.0);
-      if (!targetTree) targetTree = myWorld.allTrees[1];
-      myWorld.dropFruit(0, 0, targetTree);
-
-      let fPos = myWorld.fruitState.pos;
-      myDragonair.targetFruitPosition = [fPos[0], fPos[2]];
-
-      myDragonair.animationState = "WAITING";
-      myDragonair.stateTimer = 0;
-
-      console.log("Buah Jatuh! Menunggu...");
+      resetCameraPov();
+      isDragonairPovActive = true;
+      console.log("Kamera POV: Dragonair");
     }
-
+    
+    if (key === "3") {
+      resetCameraPov();
+      isDragonitePovActive = true;
+      console.log("Kamera POV: Dragonite");
+    }
+    
+    // =================================================================
+    // SHORTCUT Q (TIDAK BERUBAH - POV DRAGONAIR)
+    // =================================================================
     if (key === "q") {
-      isDragonairPovActive = !isDragonairPovActive;
-      if (isDragonairPovActive) {
-        isEatingCamActive = false;
-        isFruitCamActive = false;
-        isTransitioningCamera = false;
-      }
+      resetCameraPov();
+      isDragonairPovActive = true;
+      console.log("Kamera POV: Dragonair (Shortcut Q)");
     }
+    
+    // =================================================================
+    // SHORTCUT R (TOGGLE CLIMBING)
+    // =================================================================
+    if (key === "r") {
+        if (!myDragonite.isClimbing) {
+            console.log("Mulai Memanjat Gunung!");
+            myDragonite.startClimbing();
+            resetCameraPov();
+            isCinematicActive = true;
+            cinematicAngle = 45;
+            cinematicTargetObj = myDragonite;
+        } else {
+            console.log("Menghentikan Animasi Memanjat.");
+            myDragonite.stopClimbing();
+            isCinematicActive = false; // Kembali ke free cam
+            cinematicTargetObj = null;
+        }
+    }
+    
+    // =================================================================
+    // SHORTCUT E (DRATINI FLAMETHROWER) - Memicu Cinematic
+    // =================================================================
     if (key === "e") {
-      isFruitCamActive = !isFruitCamActive;
-      if (isFruitCamActive) isDragonairPovActive = false;
+      myDratini.startFlamethrower();
+      resetCameraPov();
+      isDratiniPovActive = false; // Pastikan POV standar mati
+      isDratiniSkillCamActive = true; // AKTIFKAN CINEMATIC
+      console.log("Dratini: Flamethrower Ditembakkan! Cinematic aktif.");
     }
+    
+    // =================================================================
+    // SHORTCUT T (DRATINI TACKLE) - Memicu Cinematic
+    // =================================================================
+    if (key === "t") {
+      myDratini.startTackle();
+      resetCameraPov();
+      isDratiniPovActive = false; // Pastikan POV standar mati
+      isDratiniSkillCamActive = true; // AKTIFKAN CINEMATIC (akan ditangani di tick())
+      console.log("Dratini: Tackle Ditembakkan! Cinematic aktif.");
+    }
+    
+    // =================================================================
+    // SHORTCUT G (TIDAK DIPAKAI/GANTI)
+    // =================================================================
+    if (key === "g") {
+      console.log("Tombol G sekarang digantikan oleh Tombol R untuk aksi Dragonite.");
+    }
+    
+    // Tombol F untuk Cinematic Fruit Drop (Tetap sama)
     if (key === "f") {
-      // Cek apakah sedang tidak cinematic
       if (!isCinematicActive) {
-        isCinematicActive = true;
-        cinematicAngle = 0;
+        // Logika Drop Fruit Dragonair
+        currentScenario = "DRAGONAIR_ANIMATION";
+        if (animationTimerID) clearTimeout(animationTimerID);
 
-        // KITA SET TARGETNYA DI SINI:
-        cinematicTargetObj = myDragonite;
+        resetCameraPov(); // Reset semua kamera
+        isPaused = false;
 
-        // Matikan kamera lain agar tidak bentrok (opsional, biar fokus)
-        isDragonairPovActive = false;
-        isFruitCamActive = false;
+        let targetTree = myWorld.allTrees.find((t) => Math.abs(t.position[0] - 60) < 1.0 && Math.abs(t.position[2] - 50) < 1.0);
+        if (!targetTree) targetTree = myWorld.allTrees[1];
+        myWorld.dropFruit(0, 0, targetTree);
 
-        console.log("Cinematic Mode: ON - Target: Dragonite");
+        let fPos = myWorld.fruitState.pos;
+        myDragonair.targetFruitPosition = [fPos[0], fPos[2]];
+
+        myDragonair.animationState = "WAITING";
+        myDragonair.stateTimer = 0;
+        
+        // Aktifkan Fruit Cam Otomatis
+        isFruitCamActive = true;
+        
+        console.log("Buah Jatuh! Dragonair Menunggu...");
       }
     }
-    // --- [BARU] Tombol G untuk Memanjat ---
-    if (key === "g") {
-      console.log("Mulai Memanjat Gunung!");
-
-      // Panggil fungsi di dragonite.js
-      myDragonite.startClimbing();
-
-      // Aktifkan Mode Kamera Cinematic (Gunakan target logic yang sudah kita buat)
-      // Kita manfaatkan mode cinematic tapi nanti kita sesuaikan agar "follow"
-      isCinematicActive = true;
-      cinematicAngle = 45;
-      // Atau 0 jika ingin lihat dari depan.
-      // Kita atur logic khususnya di bawah.
-      cinematicTargetObj = myDragonite;
-
-      // Matikan kamera lain
-      isDragonairPovActive = false;
-      isFruitCamActive = false;
+    
+    // Tombol 0 untuk Reset/Free Cam
+    if (key === "0") {
+        resetCameraPov();
+        cameraTarget = [0.0, 5.0, 0.0];
+        cameraDistance = 45.0;
+        updateCamera();
+        console.log("Kamera Reset ke Free Cam Default");
     }
+    
   };
   document.onkeyup = function (ev) {
     keysPressed[ev.key.toLowerCase()] = false;
@@ -283,138 +350,199 @@ function main() {
     cameraStartTimer += dt;
 
     // =================================================================
-    // LOGIKA KAMERA
+    // LOGIKA KAMERA (Diperbarui)
     // =================================================================
+    
+    // --- Prioritas 1: DRATINI SKILL CINEMATIC CAMERA (E atau T) ---
+    if (isDratiniSkillCamActive) {
+        let dPos = myDratini.position;
+        let dRotY = myDratini.globalRotationY || 0;
+        
+        let maxDuration;
+        if (myDratini.animationState === 'FLAMETHROWER' || myDratini.animationState === 'FLAMETHROWER_PREP') {
+            maxDuration = myDratini.prepDuration + myDratini.flameDuration;
+        } else if (myDratini.animationState === 'TACKLE') {
+            maxDuration = myDratini.tackleDuration;
+        } else {
+             // Selesai skill, matikan cinematic
+             isDratiniSkillCamActive = false;
+             isDratiniPovActive = true; // Kembali ke POV samping standar
+             console.log("Cinematic Dratini Skill selesai. Kembali ke Dratini POV.");
+             // Lanjutkan ke logika berikutnya (POV Pokémon Aktif)
+        }
+        
+        if (isDratiniSkillCamActive) {
+            let lerpSpeed = 5.0 * dt;
+            let zoomProgress = myDratini.stateTimer;
+            let currentDist;
+            
+            // Logika zoom: Awal (dekat) -> Tengah (jauh) -> Akhir (dekat)
+            let halfDuration = maxDuration / 2;
+            if (zoomProgress < halfDuration) {
+                let progress = zoomProgress / halfDuration;
+                currentDist = DRATINI_SIDE_DIST + (DRATINI_FLAME_ZOOM_OUT_DIST - DRATINI_SIDE_DIST) * progress;
+            } else {
+                let returnProgress = zoomProgress - halfDuration;
+                let progress = returnProgress / halfDuration;
+                currentDist = DRATINI_FLAME_ZOOM_OUT_DIST - (DRATINI_FLAME_ZOOM_OUT_DIST - DRATINI_SIDE_DIST) * progress;
+            }
+            
+            currentDist = Math.max(DRATINI_SIDE_DIST, Math.min(DRATINI_FLAME_ZOOM_OUT_DIST, currentDist));
+            
+            // Target: Fokus di kepala Dratini
+            let lookX = dPos[0]; 
+            let lookY = dPos[1] + 1.5; 
+            let lookZ = dPos[2];
+            
+            // Posisi Kamera: 90 derajat ke samping (kanan Dratini)
+            let sideAngle = (dRotY - 90) * Math.PI / 180.0;
+            
+            let camX = lookX + Math.sin(sideAngle) * currentDist;
+            let camY = lookY + DRATINI_SIDE_HEIGHT;
+            let camZ = lookZ + Math.cos(sideAngle) * currentDist;
 
-    if (cameraStartTimer < 1.5) {
-      // Intro Delay (No Op)
-    } else {
-      // 1. POV Dragonair (Q)
-      if (isDragonairPovActive) {
-        let dPos = myDragonair.position;
-        let radAngle = (myDragonair.currentAngleY * Math.PI) / 180.0;
+            // Lerp untuk transisi halus
+            cameraPosition[0] += (camX - cameraPosition[0]) * lerpSpeed;
+            cameraPosition[1] += (camY - cameraPosition[1]) * lerpSpeed;
+            cameraPosition[2] += (camZ - cameraPosition[2]) * lerpSpeed;
+            
+            cameraTarget[0] += (lookX - cameraTarget[0]) * lerpSpeed;
+            cameraTarget[1] += (lookY - cameraTarget[1]) * lerpSpeed;
+            cameraTarget[2] += (lookZ - cameraTarget[2]) * lerpSpeed;
+
+            viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
+        }
+    }
+    
+    // --- Prioritas 2: POV Pokémon Aktif (1, 2, 3, Q) ---
+    else if (isDratiniPovActive || isDragonairPovActive || isDragonitePovActive) {
+        
+        let targetObject = null;
         let camDist = 25.0;
         let camHeight = 14.0;
-        cameraPosition[0] = dPos[0] - Math.sin(radAngle) * camDist;
-        cameraPosition[1] = dPos[1] + camHeight;
-        cameraPosition[2] = dPos[2] - Math.cos(radAngle) * camDist;
         let lookDist = 15.0;
-        cameraTarget[0] = dPos[0] + Math.sin(radAngle) * lookDist;
-        cameraTarget[1] = dPos[1] + 2.0;
-        cameraTarget[2] = dPos[2] + Math.cos(radAngle) * lookDist;
-        viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
-      }
-      // --- 2. GENERIC CINEMATIC CAMERA ---
-      else if (isCinematicActive && cinematicTargetObj) {
-        // 1. Tentukan Settingan Default (Untuk Tombol F / Close-up)
-        let radius = 32.0; // Dekat
-        let camHeightOffset = 0.5; // Sejajar mata
-        let rotateSpeed = 60.0; // Cepat
-
-        // 2. Cek: Apakah Target sedang Memanjat? (Untuk Tombol G)
-        if (cinematicTargetObj.isClimbing) {
-          // Hitung Progress Animasi (0.0 sampai 1.0) berdasarkan sudut putaran
-          // Kita bagi dengan 300 (bukan 360) supaya di akhir dia sempat diam sebentar dalam posisi jauh
-          let progress = Math.min(1.0, cinematicAngle / 300.0);
-
-          // --- LOGIKA ZOOM OUT (Semakin Lama Semakin Jauh) ---
-          let startDist = 10.0; // Jarak Awal (Dekat)
-          let endDist = 90.0; // Jarak Akhir (Jauh sekali biar epik)
-
-          // Rumus: Jarak Saat Ini = Awal + (Selisih * Progress)
-          radius = startDist + (endDist - startDist) * progress;
-
-          // --- LOGIKA NAIK KE ATAS (Drone Shot) ---
-          // Biar tidak tertutup tanah, semakin jauh kamera harus semakin tinggi
-          let startHeight = 5.0;
-          let endHeight = 40.0; // Tinggi akhir
-          camHeightOffset = startHeight + (endHeight - startHeight) * progress;
-
-          rotateSpeed = 45.0; // Sedikit lebih cepat biar dramatis
+        let lookOffset = 2.0;
+        let isSideView = false;
+        
+        if (isDratiniPovActive) {
+            targetObject = myDratini;
+            isSideView = true;
+            camDist = DRATINI_SIDE_DIST; // 20.0
+            camHeight = DRATINI_SIDE_HEIGHT; // 5.0
+            lookOffset = 1.0;
+        } else if (isDragonairPovActive) {
+            targetObject = myDragonair;
+            camDist = 25.0;
+            camHeight = 14.0;
+            lookDist = 15.0;
+            lookOffset = 2.0;
+        } else if (isDragonitePovActive) {
+            targetObject = myDragonite;
+            camDist = 25.0;
+            camHeight = 20.0;
+            lookDist = 15.0;
+            lookOffset = 5.0;
         }
 
-        // B. Update Sudut
-        // Jika Dragonite sedang climbing, kita mungkin mau kamera berputar pelan
-        // atau tetap di belakang. Kita biarkan berputar saja biar cinematic.
+        if (targetObject) {
+            let dPos = targetObject.position;
+            let dRotY = targetObject.globalRotationY || 0;
+            let radAngle = (dRotY * Math.PI) / 180.0;
+            
+            if (isSideView) {
+                // LOGIKA POV SAMPING (Dratini - 1)
+                let sideAngle = (dRotY - 90) * Math.PI / 180.0;
+
+                cameraPosition[0] = dPos[0] + Math.sin(sideAngle) * camDist;
+                cameraPosition[1] = dPos[1] + camHeight;
+                cameraPosition[2] = dPos[2] + Math.cos(sideAngle) * camDist;
+                
+                // Titik Fokus (Di tengah badan)
+                cameraTarget[0] = dPos[0];
+                cameraTarget[1] = dPos[1] + lookOffset;
+                cameraTarget[2] = dPos[2];
+            } else {
+                // LOGIKA POV BELAKANG (Dragonair, Dragonite)
+                cameraPosition[0] = dPos[0] - Math.sin(radAngle) * camDist;
+                cameraPosition[1] = dPos[1] + camHeight;
+                cameraPosition[2] = dPos[2] - Math.cos(radAngle) * camDist;
+                
+                cameraTarget[0] = dPos[0] + Math.sin(radAngle) * lookDist;
+                cameraTarget[1] = dPos[1] + lookOffset;
+                cameraTarget[2] = dPos[2] + Math.cos(radAngle) * lookDist;
+            }
+            
+            viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
+        }
+    }
+    // --- Prioritas 3: GENERIC CINEMATIC CAMERA (R - Dragonite Climb) ---
+    else if (isCinematicActive && cinematicTargetObj) {
+        // ... (Logika Cinematic Climb tetap sama)
+        let radius = 32.0; 
+        let camHeightOffset = 0.5; 
+        let rotateSpeed = 60.0; 
+
+        if (cinematicTargetObj.isClimbing) {
+            let progress = Math.min(1.0, cinematicAngle / 300.0);
+            let startDist = 10.0; 
+            let endDist = 90.0; 
+            radius = startDist + (endDist - startDist) * progress;
+            let startHeight = 5.0;
+            let endHeight = 40.0; 
+            camHeightOffset = startHeight + (endHeight - startHeight) * progress;
+            rotateSpeed = 45.0; 
+        }
+
         cinematicAngle += rotateSpeed * dt;
-
-        // C. Ambil Posisi Target (REAL TIME)
-        // INI PENTING: Karena Dragonite bergerak naik, targetPos akan berubah tiap frame
         let targetPos = cinematicTargetObj.position;
-
-        // D. Hitung Posisi Kamera
         let rad = (cinematicAngle * Math.PI) / 180.0;
 
-        // Posisi Kamera mengikuti targetPos yang sedang naik
         let camX = targetPos[0] + Math.sin(rad) * radius;
-        // Kita tambahkan offset Y agar kamera tidak terlalu mendongak
-        let camY = targetPos[1] + 2.0;
+        let camY = targetPos[1] + camHeightOffset; 
         let camZ = targetPos[2] + Math.cos(rad) * radius;
 
-        // Titik Fokus
         let lookX = targetPos[0];
-        let lookY = targetPos[1] + 2.0; // Fokus ke badan
+        let lookY = targetPos[1] + 2.0; 
         let lookZ = targetPos[2];
 
         viewMatrix.setLookAt(camX, camY, camZ, lookX, lookY, lookZ, 0, 1, 0);
 
-        // Update manual cam
         cameraPosition = [camX, camY, camZ];
         cameraTarget = [lookX, lookY, lookZ];
 
-        // E. Cek Selesai
-        // KITA UBAH LOGIC SELESAI:
-        // Jangan matikan kamera hanya karena sudut 360, TAPI
-        // matikan kamera jika Dragonite SUDAH SELESAI memanjat.
-
-        // Cek properti isClimbing pada objek target (jika ada)
         if (cinematicTargetObj.isClimbing === false && cinematicAngle >= 360) {
           isCinematicActive = false;
           cinematicAngle = 0;
           cinematicTargetObj = null;
           console.log("Cinematic Climb Finished");
         }
-      }
-      // 2. Kamera Buah (E)
-      else if (isFruitCamActive && window.myWorld && window.myWorld.fruitState.active) {
-        let fPos = window.myWorld.fruitState.pos;
-        let lerpSpeed = 5.0 * dt;
-        if (!isPaused) {
-          cameraTarget[0] += (fPos[0] - cameraTarget[0]) * lerpSpeed;
-          cameraTarget[1] += (fPos[1] - cameraTarget[1]) * lerpSpeed;
-          cameraTarget[2] += (fPos[2] - cameraTarget[2]) * lerpSpeed;
-          let camOffsetX = 8.0;
-          let camOffsetY = 5.0;
-          let camOffsetZ = 8.0;
-          let targetPosX = fPos[0] + camOffsetX;
-          let targetPosY = fPos[1] + camOffsetY;
-          let targetPosZ = fPos[2] + camOffsetZ;
-          cameraPosition[0] += (targetPosX - cameraPosition[0]) * lerpSpeed;
-          cameraPosition[1] += (targetPosY - cameraPosition[1]) * lerpSpeed;
-          cameraPosition[2] += (targetPosZ - cameraPosition[2]) * lerpSpeed;
-        }
-        viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
-      }
-      // 3. Kamera Otomatis Saat MAKAN atau LOVE_LOVE (Auto Cam)
-      else if ((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused) {
+    }
+    // --- Prioritas 4: Kamera Buah (F) / Auto Cam Dragonair (EATING/LOVE_LOVE) ---
+    else if ((isFruitCamActive && window.myWorld && window.myWorld.fruitState.active) || 
+             ((myDragonair.animationState === "EATING" || myDragonair.animationState === "LOVE_LOVE") && !isPaused)) {
+        
         let dPos = myDragonair.position;
         let radAngle = (myDragonair.currentAngleY * Math.PI) / 180.0;
-
-        // Kamera Depan Wajah
-        let frontDist = 12.0;
-        let camHeight = 4.0;
-
-        let targetCamX = dPos[0] + Math.sin(radAngle) * frontDist;
-        let targetCamZ = dPos[2] + Math.cos(radAngle) * frontDist;
-        let targetCamY = dPos[1] + camHeight;
-
-        let lookX = dPos[0];
-        let lookY = dPos[1] + 3.0;
-        let lookZ = dPos[2];
-
         let lerpSpeed = 3.0 * dt;
+        let targetCamX, targetCamY, targetCamZ, lookX, lookY, lookZ;
+        
+        if (isFruitCamActive) {
+            let fPos = window.myWorld.fruitState.pos;
+            lerpSpeed = 5.0 * dt;
+            lookX = fPos[0]; lookY = fPos[1]; lookZ = fPos[2];
+            let camOffsetX = 8.0, camOffsetY = 5.0, camOffsetZ = 8.0;
+            targetCamX = fPos[0] + camOffsetX;
+            targetCamY = fPos[1] + camOffsetY;
+            targetCamZ = fPos[2] + camOffsetZ;
+        } else { // EATING / LOVE_LOVE
+            let frontDist = 12.0;
+            let camHeight = 4.0;
+            targetCamX = dPos[0] + Math.sin(radAngle) * frontDist;
+            targetCamZ = dPos[2] + Math.cos(radAngle) * frontDist;
+            targetCamY = dPos[1] + camHeight;
+            lookX = dPos[0]; lookY = dPos[1] + 3.0; lookZ = dPos[2];
+        }
 
-        // Lerp Posisi Kamera
         cameraPosition[0] += (targetCamX - cameraPosition[0]) * lerpSpeed;
         cameraPosition[1] += (targetCamY - cameraPosition[1]) * lerpSpeed;
         cameraPosition[2] += (targetCamZ - cameraPosition[2]) * lerpSpeed;
@@ -425,21 +553,17 @@ function main() {
 
         viewMatrix.setLookAt(cameraPosition[0], cameraPosition[1], cameraPosition[2], cameraTarget[0], cameraTarget[1], cameraTarget[2], 0, 1, 0);
 
-        // [FIX] SINKRONISASI FREE CAM
-        // Agar saat mode ini selesai, Free Cam tidak "loncat", kita update variabel free cam
-        // mengikuti posisi kamera otomatis saat ini.
         let dx = cameraPosition[0] - cameraTarget[0];
         let dy = cameraPosition[1] - cameraTarget[1];
         let dz = cameraPosition[2] - cameraTarget[2];
         cameraDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        // Update Angle X & Y agar match
         cameraAngleX = Math.asin(dy / cameraDistance) * (180 / Math.PI);
         if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) {
           cameraAngleY = Math.atan2(dx, dz) * (180 / Math.PI);
         }
-      }
-      // 4. Free Cam (Default)
-      else {
+    }
+    // Prioritas 5: Free Cam (Default)
+    else {
         let radY = (cameraAngleY * Math.PI) / 180.0;
         let backVector = [Math.sin(radY), 0, Math.cos(radY)];
         let rightVector = [Math.cos(radY), 0, -Math.sin(radY)];
@@ -476,11 +600,11 @@ function main() {
           moved = true;
         }
 
-        if (moved || (!isEatingCamActive && !isFruitCamActive && !isDragonairPovActive)) {
+        if (moved) {
           updateCamera();
         }
-      }
     }
+
 
     // =================================================================
     // LOGIKA GAMEPLAY
@@ -488,7 +612,8 @@ function main() {
     if (!isPaused) {
       myWorld.update(now, elapsed);
       myDragonair.update(now, groundY, elapsed);
-      myDratini.update(elapsed, worldBounds);
+      // Dratini hanya bergerak jika IDLE
+      myDratini.update(elapsed, worldBounds); 
       myDragonite.update(now, groundY, elapsed);
     }
 
